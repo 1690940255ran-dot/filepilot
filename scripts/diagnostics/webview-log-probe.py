@@ -11,9 +11,11 @@ import subprocess
 import time
 from pathlib import Path
 
-PROJECT = Path(r"C:\Users\cj169\Desktop\开发\filepilot")
+# 相对本脚本定位仓库根（`scripts/diagnostics/` → 上两级）。
+# 安装目录走环境变量，不写死用户名——`%LOCALAPPDATA%` 在每台机器上都对。
+PROJECT = Path(__file__).resolve().parents[2]
 INSTALLER = PROJECT / "src-tauri" / "target" / "release" / "bundle" / "nsis" / "FilePilot_0.1.0_x64-setup.exe"
-INSTALL_DIR = Path(r"C:\Users\cj169\AppData\Local\FilePilot")
+INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "FilePilot"
 LOG = PROJECT / "tmp" / "webview-debug.log"
 
 lines: list[str] = []

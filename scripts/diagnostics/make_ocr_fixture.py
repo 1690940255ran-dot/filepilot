@@ -9,7 +9,10 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-PROJECT = Path(r"C:\Users\cj169\Desktop\开发\filepilot")
+# 相对本脚本定位仓库根（`scripts/diagnostics/` → 上两级）。
+# **不要写死绝对路径**：这个文件会进公开仓库，硬编码的 `C:\Users\<名字>\…`
+# 既是本机路径泄漏，也让别人 clone 下来直接跑不起来。
+PROJECT = Path(__file__).resolve().parents[2]
 FIXTURES = PROJECT / "src-tauri" / "tests" / "fixtures"
 FIXTURES.mkdir(parents=True, exist_ok=True)
 

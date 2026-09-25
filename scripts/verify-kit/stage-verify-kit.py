@@ -10,8 +10,10 @@ import hashlib
 import shutil
 from pathlib import Path
 
-PROJECT = Path(r"C:\Users\cj169\Desktop\开发\filepilot")
+# 相对本脚本定位仓库根（`scripts/verify-kit/` → 上两级）。
+# `STAGE` 是**要交给虚拟机的暂存目录**，故意放在仓库外、且是纯 ASCII 路径。
 STAGE = Path(r"C:\fp-verify")
+PROJECT = Path(__file__).resolve().parents[2]
 STAGING = PROJECT / "tmp" / "fp-verify-staging"
 
 INSTALLER = PROJECT / "src-tauri" / "target" / "release" / "bundle" / "nsis" / "FilePilot_0.1.0_x64-setup.exe"
