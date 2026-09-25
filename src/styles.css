@@ -211,7 +211,10 @@ body {
 
 .info-grid {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  /* `max-content` 而不是固定 200px：标签最长的是「递归深度上限」这类 6 字词，
+     写死宽度会让别的语言的标签被截断。但**第一列必须由布局统一决定**，
+     不能是 `auto` —— 那样每一行的列宽各算各的，数值列就会左右错位。 */
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 6px 20px;
   margin: 0 0 22px;
   padding: 18px 20px;
@@ -224,8 +227,220 @@ body {
   color: var(--text-muted);
 }
 
+/*
+  统计值列（PR-002）。
+
+  缺陷现象是「已移动 8」里的 8 明显右偏，与下面三行的 0 不在同一列。
+  原因有两处，只改一处不够：
+
+  1. `1fr` 让每个 dd 占满剩余宽度，而 `text-align` 默认继承 `left`——
+     值就贴在**各自 dt 的右边缘**上。dt 是 `max-content` 时宽度不同
+     （「已移动」3 字 /「未完成」3 字，但「未执行」与「失败」不同宽），
+     于是每行的值起点都不一样。
+  2. 即使起点相同，数字不右对齐时，位数一变（8 → 10）右边缘也会漂。
+
+  两个一起修：值统一右对齐 + 等宽数字 + 给定足够宽的最小列，
+  这样无论 1 位还是多位，数值都在同一条右基准线上。
+*/
 .info-grid dd {
   margin: 0;
+  /* 等宽数字：切换 8→10→100 时字形宽度不变，右边缘不跳。 */
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* 右对齐后给值留出最小宽度，避免 dt 很长时把值挤到贴近标签。 */
+  min-width: 4ch;
+}
+
+/* 带说明文字的行（例如「可执行项」在未校验时显示「—」）也走同一套对齐。 */
+
+/* ---------------------------------------------------------------------------
+   问题列表（PR-001）
+   ---------------------------------------------------------------------------
+   **这一组样式此前整体缺失，是 PR-001 的真正根因。**
+
+   根因不是「间距不够」，而是 `.issue*` 与 `.modal*` 这些类名在样式表里
+   **一条规则都没有**。三个 `<span>` 于是按行内元素默认排布紧贴在一起：
+
+       提示 目标目录 文档 尚不存在, 执行时会创建9d933692-…
+
+   `issue-scope` 渲染的是 `PlanItem.id`，也就是一个 UUID。它紧贴在正文
+   末尾，读起来就像正文的一部分——连维护者本人第一次都判成「文案 bug」，
+   可见这个观感问题会直接把排查带偏。
+
+   修法分两层，缺一不可：
+   1. **视觉分层**：把 UUID 变成明显「不属于正文」的次要标注——
+      等宽字体 + 弱化色 + 独立的浅色底，靠形状而非仅靠颜色区分。
+   2. **排版隔离**：`flex` + `gap`，让间距由布局保证，
+      而不是依赖 `margin` 的相邻折叠（那在换行时会让两条元信息粘在一起）。
+   --------------------------------------------------------------------------- */
+
+.issue-list {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.issue {
+  display: flex;
+  align-items: baseline;
+  /* 间距必须由 gap 给，不能用相邻 margin —— 那在换行时会折叠掉。 */
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* 阻断项用左侧色条标出，让「最该先看的」一眼可辨。 */
+.issue-block {
+  border-left: 3px solid var(--danger);
+}
+
+.issue-warning {
+  border-left: 3px solid #d9a441;
+}
+
+.issue-badge {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+/* 状态色只做辅助，不承担唯一信息通道：徽标里始终有文字。 */
+.badge-info {
+  color: #1a4f8a;
+  background: #eaf1fb;
+  border-color: #cfe0f5;
+}
+
+.badge-warning {
+  color: #8a5a00;
+  background: #fdf3e2;
+  border-color: #f0dcb4;
+}
+
+.badge-block {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: #f3c2bd;
+}
+
+/* 正文占满剩余宽度，把「作用域」挤到行尾，两者之间形成明确的空隙。 */
+.issue-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 作用域标注：等宽 + 弱化色 + 独立底色。
+   UUID 是机器标识，长相上就该和中文正文不一样——这样即使它很长、
+   甚至换行到正文下方，也不会被读成一句话。 */
+.issue-scope {
+  flex: 0 0 auto;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 6px;
+  /* 极长的 UUID 不换行，靠 ellipsis 收尾；完整值仍可从 title 看到。 */
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   确认对话框（PR-001 的同一类缺陷：这些类名此前也没有任何规则）
+   --------------------------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.45);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 22px 24px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.24);
+}
+
+.modal .section-heading {
+  margin-top: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.confirm-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.confirm-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.confirm-irreversible {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* 禁用理由列表。此前 `.disabled-reasons` 也没有规则，
+   于是「为什么不能确认」这组 <li> 带着列表符号挤在一起。
+   规格 T14 要求这些理由对用户可见——可见不仅是「出现在 DOM 里」。 */
+.disabled-reasons {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/*
+  进度面板（PR-004）。
+  执行期间对话框已经关闭，这里的文字是用户能看到的**唯一**反馈。
+  `sticky` 让它在长文件列表滚动时仍停在视口底部：
+  952 个文件的场景下，把进度放在页面最下方等于没有反馈。
+*/
+.progress-panel {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 0 0 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--accent-soft);
+  border: 1px solid #cfe0f5;
+  border-radius: var(--radius);
+  /* 进度数字用等宽：数值跳动时宽度稳定，不会让整行左右抖。 */
   font-variant-numeric: tabular-nums;
 }
 
@@ -327,6 +542,73 @@ body {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 1px 8px;
+}
+
+/* 计划标识（PR-003）。等宽 + 弱化色，长相上明确是「机器标识」而非正文。 */
+.run-plan-id {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   逐文件明细（PR-003）
+   --------------------------------------------------------------------------- */
+
+.history-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 明细可能很长（952 个文件就是 952 行）。给一个上限并让它自己滚，
+     否则展开一条就会把整个页面顶到几万像素高。 */
+  max-height: 340px;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 4px 14px;
+  align-items: baseline;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.history-item-attention {
+  border-left: 3px solid #d9a441;
+}
+
+.history-item-paths {
+  grid-column: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 状态落在右列，与上面的统计一样走右对齐的固定列，
+   避免不同长度的状态词让整块左右参差。 */
+.history-item-status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.history-item-code {
+  display: block;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 11px;
+  color: var(--danger);
 }
 
 .run-detail {

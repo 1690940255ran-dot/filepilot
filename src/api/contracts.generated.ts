@@ -150,6 +150,34 @@ direction: string,
  */
 stateDigest: string, status: RunStatus, counts: RunCounts, issues: Array<Issue>, };
 
+export type RunItem = { itemId: string, 
+/**
+ * 这一项当时的**源**位置。
+ */
+source: Array<string>, 
+/**
+ * 这一项当时的**目标**位置。
+ */
+target: Array<string>, status: OpStatus, 
+/**
+ * 未决事实的人工处置结果。与 `status` 是两个维度（见 `OpStatus` 的说明）。
+ */
+resolution: OpResolution, 
+/**
+ * 失败或未决时的错误码；正常完成时为 `None`。
+ */
+errorCode: string | null, };
+
+export type RunItems = { runId: string, 
+/**
+ * 本次运行的**全部**项（含未执行的），按派发顺序。
+ *
+ * 不在这里返回 `direction` / `counts`：调用方拿 `runId` 时**必然**
+ * 已经有一份 `RunReport`（列表行或 `get_run`），再带一遍就是同一份事实
+ * 存两处——那是规格 0.6 明令禁止的「两套同义但不兼容的数据结构」的温床。
+ */
+items: Array<RunItem>, };
+
 export type RecoveryItem = { operationId: string, itemId: string, source: Array<string>, target: Array<string>, status: OpStatus, resolution: OpResolution, 
 /**
  * 为什么是这个判定。这句话会直接显示在界面上，写的是「用户能据以行动」的内容。

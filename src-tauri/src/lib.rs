@@ -103,6 +103,8 @@ pub fn run() {
             commands_execute::execute_plan,
             commands_execute::get_run,
             commands_execute::list_runs,
+            // PR-003：历史明细按 runId 单独拉，不加宽 list_runs
+            commands_execute::get_run_items,
             commands_recovery::get_recovery,
             commands_recovery::acknowledge_recovery,
             commands_recovery::recover_pending_runs,

@@ -12,6 +12,18 @@ interface ConfirmDialogProps {
   confirmation: ConfirmationView
   /** 当前时间，由调用方传入，便于测试控制过期。 */
   nowMs: number
+  /**
+   * 执行是否已经在进行中（PR-004）。
+   *
+   * 与 `disabledReasons` 决定的禁用是**两回事**，必须分开：
+   *
+   * - `disabledReasons` 说的是「你现在还不能确认」——去补做那个动作即可解除；
+   * - `busy` 说的是「你已经确认过了，正在做」——用户什么都不用做，等就行。
+   *
+   * 把 `busy` 并进 `disabledReasons` 会让按钮旁边多出一句
+   * 「还不能确认」的**错误理由**，而真实原因是「已经在确认了」。
+   */
+  busy?: boolean
   onCancel: () => void
   onConfirm: () => void
 }
@@ -30,6 +42,7 @@ export function ConfirmDialog({
   selectedCount,
   confirmation,
   nowMs,
+  busy = false,
   onCancel,
   onConfirm,
 }: ConfirmDialogProps): JSX.Element | null {
@@ -37,6 +50,9 @@ export function ConfirmDialog({
 
   const reasons = disabledReasons(confirmation, selectedCount, nowMs)
   const disabled = reasons.length > 0
+  // 执行中一律禁用，且**不**显示任何「禁用理由」——理由列表是给
+  // 「去补做某个动作」用的，而执行中用户唯一该做的就是等。
+  const blocked = busy || disabled
 
   return (
     <div className="modal-backdrop">
@@ -63,16 +79,16 @@ export function ConfirmDialog({
         )}
 
         <div className="modal-actions">
-          <button type="button" className="secondary-action" onClick={onCancel}>
+          <button type="button" className="secondary-action" onClick={onCancel} disabled={busy}>
             {t.preview.cancelEdit}
           </button>
           <button
             type="button"
             className="primary-action"
             onClick={onConfirm}
-            disabled={disabled}
+            disabled={blocked}
           >
-            {t.preview.confirmInDialog}
+            {busy ? t.preview.executing : t.preview.confirmInDialog}
           </button>
         </div>
       </div>

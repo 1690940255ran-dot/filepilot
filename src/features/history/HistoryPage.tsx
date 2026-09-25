@@ -4,6 +4,7 @@ import { call, IpcError } from '../../api/client'
 import type { RunReport } from '../../api/contracts.generated'
 import { t } from '../../i18n/zh-CN'
 import { IssueList } from '../preview/IssueList'
+import { RunItemsTable } from './RunItemsTable'
 
 const PAGE_SIZE = 50
 
@@ -128,6 +129,22 @@ export function HistoryPage({
                 <span className="run-direction">
                   {run.direction === 'undo' ? t.undo.undoRecordLabel : t.undo.applyRecordLabel}
                 </span>
+                {/*
+                  计划 id 的前 8 位。
+
+                  这是**零成本**的可辨识手段：`RunReport` 本来就带 `planId`，
+                  列表接口不需要多传任何字段，也不会变重。
+
+                  它直接回答「哪条历史对应哪次整理」——同一次生成的计划被执行、
+                  被撤销，`planId` 相同；两次不同的整理，`planId` 必然不同。
+                  光看「已完成 8 · 0 · 0」这两行是一样的，加上它就能对上号。
+
+                  只取前 8 位：完整 UUID 会喧宾夺主，而 8 位十六进制在
+                  「同屏几十行」的规模下足以区分。完整值留在 title 里。
+                */}
+                <span className="run-plan-id" title={run.planId}>
+                  {t.history.planIdLabel} {run.planId.slice(0, 8)}
+                </span>
                 <span className="run-counts">
                   {t.history.appliedColumn} {run.counts.applied}
                   {' · '}
@@ -148,6 +165,20 @@ export function HistoryPage({
 
               {expanded === run.runId && (
                 <div className="run-detail">
+                  {/*
+                    PR-003：先给逐文件清单，再给问题列表。
+
+                    顺序是有意的。此前这里**只有** `IssueList`，而一次顺利的整理
+                    `issues` 为空，于是展开后除了「没有发现问题。」什么都没有——
+                    用户反馈的正是「看不到具体整理了什么东西」。
+
+                    「没有发现问题」和「这次动了哪 8 个文件」是两个不同的问题，
+                    对应用户两种不同的疑问。前者回答「有没有出错」，
+                    后者回答「这是哪一次整理」。缺了后者，整理两次以上
+                    就会出现多行几乎相同的「已完成 8 · 0 · 0」，无法区分。
+                  */}
+                  <RunItemsTable runId={run.runId} />
+
                   <IssueList issues={run.issues} />
 
                   {/*

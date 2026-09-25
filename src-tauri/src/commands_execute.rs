@@ -19,7 +19,8 @@ use crate::app_state::AppState;
 
 use crate::commands::TASK_PROGRESS_CHANNEL;
 use crate::domain::types::{
-    Issue, OpStatus, PlanAction, PlanStatus, Risk, RunReport, RunStatus, TaskError, TaskStatus,
+    Issue, OpStatus, PlanAction, PlanStatus, Risk, RunItem, RunItems, RunReport, RunStatus,
+    TaskError, TaskStatus,
 };
 use crate::domain::{errors::codes, errors::AppError, IpcResult};
 use crate::executor::{execute_started_observed, ExecutionObserver};
@@ -284,6 +285,42 @@ pub fn list_runs(state: State<'_, AppState>, limit: Option<u32>) -> IpcResult<Ve
 
 /// 默认列出多少条历史。
 const DEFAULT_RUN_PAGE: u32 = 50;
+
+/// 读取一次运行的逐文件明细（PR-003）。
+///
+/// 与 `get_run` 的分工：`get_run` 给**摘要**（状态、计数、问题），
+/// 这个命令给**逐项清单**。分开而不是加宽 `RunReport`，理由是后者会立刻
+/// 让 `list_runs` 变重——历史 50 条 × 每条 8+ 项，展开一条却要把全部路径
+/// 都拖回前端。规格 MASTER_PLAN:387 对历史分页有过明确要求：
+/// 「不将正文带回前端」。这里遵循同一条克制原则。
+///
+/// 查不到 run 时返回 `None`（与 `get_run` 一致）：
+/// 「这个 id 在本会话里不存在」是一个结论，不是错误。
+#[tauri::command]
+pub fn get_run_items(state: State<'_, AppState>, run_id: String) -> IpcResult<Option<RunItems>> {
+    let db = state.db();
+    match crate::storage::runs::load_run(db, &run_id) {
+        Ok(None) => IpcResult::ok(None),
+        Ok(Some(_)) => match crate::storage::runs::list_operations(db, &run_id) {
+            Ok(operations) => IpcResult::ok(Some(RunItems {
+                run_id,
+                items: operations
+                    .into_iter()
+                    .map(|operation| RunItem {
+                        item_id: operation.item_id,
+                        source: operation.source,
+                        target: operation.target,
+                        status: operation.status,
+                        resolution: operation.resolution,
+                        error_code: operation.error_code,
+                    })
+                    .collect(),
+            })),
+            Err(error) => IpcResult::err(error),
+        },
+        Err(error) => IpcResult::err(error),
+    }
+}
 
 /// 把一行 run 组装成面向界面的报告。
 ///

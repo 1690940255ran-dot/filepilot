@@ -371,6 +371,51 @@ pub struct RunReport {
     pub issues: Vec<Issue>,
 }
 
+/// 一次运行中**单个文件**的处理结果（PR-003）。
+///
+/// 存在的理由：在它之前，历史列表每行只有三个计数，明细区只渲染 `IssueList`。
+/// 一次顺利的整理 `issues` 为空，于是展开后除了「没有发现问题。」什么都没有——
+/// 整理两次以上就会出现多行几乎相同的「已完成 8 · 0 · 0」，
+/// 用户**无法判断哪条历史对应哪次整理**。
+///
+/// 数据本身一直存在（`executor/journal.rs` 就记着每个 operation 的
+/// source/target，撤销页正是靠它渲染清单），只是**契约没有暴露**。
+/// 这是契约设计遗漏，不是实现 bug。
+///
+/// 刻意**不**把它塞进 `RunReport`：历史可达 50 条、每条 8+ 项，
+/// 一次性带回全部路径会让 `list_runs` 变重。规格 MASTER_PLAN:387 对历史分页
+/// 明确提出过「不将正文带回前端」的克制原则，这里遵循同一原则——
+/// **列表只带摘要，明细按 runId 单独拉**。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(rename_all = "camelCase")]
+pub struct RunItem {
+    pub item_id: Id,
+    /// 这一项当时的**源**位置。
+    pub source: RelPath,
+    /// 这一项当时的**目标**位置。
+    pub target: RelPath,
+    pub status: OpStatus,
+    /// 未决事实的人工处置结果。与 `status` 是两个维度（见 `OpStatus` 的说明）。
+    pub resolution: OpResolution,
+    /// 失败或未决时的错误码；正常完成时为 `None`。
+    pub error_code: Option<String>,
+}
+
+/// 一次运行的逐文件明细。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(rename_all = "camelCase")]
+pub struct RunItems {
+    pub run_id: Id,
+    /// 本次运行的**全部**项（含未执行的），按派发顺序。
+    ///
+    /// 不在这里返回 `direction` / `counts`：调用方拿 `runId` 时**必然**
+    /// 已经有一份 `RunReport`（列表行或 `get_run`），再带一遍就是同一份事实
+    /// 存两处——那是规格 0.6 明令禁止的「两套同义但不兼容的数据结构」的温床。
+    pub items: Vec<RunItem>,
+}
+
 /// 一个未决项的核对结果（规格 8.3）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

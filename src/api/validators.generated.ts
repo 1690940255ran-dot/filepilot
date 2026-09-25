@@ -6532,10 +6532,903 @@ validate30.errors = vErrors;
 return errors === 0;
 }
 
-export const RunReport = validate31;
-const schema32 = {"additionalProperties":false,"description":"执行报告。","properties":{"counts":{"additionalProperties":false,"description":"执行结果计数。","properties":{"ambiguous":{"description":"判定不出来、需要人工核对的项数（规格 8.3）。\n\n**单独计数而不是并进 `pending`**：界面上「还没轮到他」和\n「做了但说不清」需要不同的措辞和不同的动作，混在一起用户无从下手。","format":"uint32","minimum":0,"type":"integer"},"applied":{"format":"uint32","minimum":0,"type":"integer"},"failed":{"format":"uint32","minimum":0,"type":"integer"},"pending":{"format":"uint32","minimum":0,"type":"integer"},"skipped":{"format":"uint32","minimum":0,"type":"integer"}},"required":["applied","failed","skipped","pending","ambiguous"],"type":"object"},"direction":{"description":"`apply`（整理）或 `undo`（撤销）。\n\n历史列表**必须**能分清这两种记录：它们都会出现在同一条时间线上，\n而「已完成 3 项」在整理里是「搬走了 3 个文件」、在撤销里是\n「搬回了 3 个文件」——意思正好相反。少了这个字段，界面只能\n给撤销记录也挂一个「撤销」按钮，而那是一次注定被拒绝的点击。","type":"string"},"issues":{"items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"},"planId":{"type":"string"},"runId":{"type":"string"},"stateDigest":{"description":"当前操作事实与冲突集合的摘要，用于防止用户确认一份过期的报告。","type":"string"},"status":{"description":"一次执行（含撤销执行）的状态。","enum":["queued","running","completed","partial","failed","cancelled","recoveryRequired"],"type":"string"}},"required":["runId","planId","direction","stateDigest","status","counts","issues"],"type":"object"};
+export const RunItem = validate31;
+const schema32 = {"additionalProperties":false,"description":"一次运行中**单个文件**的处理结果（PR-003）。\n\n存在的理由：在它之前，历史列表每行只有三个计数，明细区只渲染 `IssueList`。\n一次顺利的整理 `issues` 为空，于是展开后除了「没有发现问题。」什么都没有——\n整理两次以上就会出现多行几乎相同的「已完成 8 · 0 · 0」，\n用户**无法判断哪条历史对应哪次整理**。\n\n数据本身一直存在（`executor/journal.rs` 就记着每个 operation 的\nsource/target，撤销页正是靠它渲染清单），只是**契约没有暴露**。\n这是契约设计遗漏，不是实现 bug。\n\n刻意**不**把它塞进 `RunReport`：历史可达 50 条、每条 8+ 项，\n一次性带回全部路径会让 `list_runs` 变重。规格 MASTER_PLAN:387 对历史分页\n明确提出过「不将正文带回前端」的克制原则，这里遵循同一原则——\n**列表只带摘要，明细按 runId 单独拉**。","properties":{"errorCode":{"description":"失败或未决时的错误码；正常完成时为 `None`。","type":["string","null"]},"itemId":{"type":"string"},"resolution":{"description":"未决事实的人工处置结果。与 `status` 是两个维度（见 `OpStatus` 的说明）。","oneOf":[{"const":"open","description":"尚未处置。","type":"string"},{"const":"acknowledged","description":"用户已核对并明确接受「保留现状」，附有理由。","type":"string"}]},"source":{"description":"这一项当时的**源**位置。","items":{"type":"string"},"type":"array"},"status":{"description":"单个文件操作的状态（规格 8.2）。\n\n迁移规则见 [`crate::domain::states`]。","oneOf":[{"enum":["pending","applied","failed"],"type":"string"},{"const":"prepared","description":"意图记录已持久化，但尚未确认文件是否被改动。","type":"string"},{"const":"skipped","description":"因取消而未派发。","type":"string"},{"const":"ambiguous","description":"无法确定是否已改动 —— 不能猜，必须人工核对。","type":"string"}]},"target":{"description":"这一项当时的**目标**位置。","items":{"type":"string"},"type":"array"}},"required":["itemId","source","target","status","resolution","errorCode"],"type":"object"};
 
 function validate31(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+let vErrors = null;
+let errors = 0;
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.itemId === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "itemId"},message:"must have required property '"+"itemId"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.source === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "source"},message:"must have required property '"+"source"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.target === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "target"},message:"must have required property '"+"target"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.status === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "status"},message:"must have required property '"+"status"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+if(data.resolution === undefined){
+const err4 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "resolution"},message:"must have required property '"+"resolution"+"'"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(data.errorCode === undefined){
+const err5 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "errorCode"},message:"must have required property '"+"errorCode"+"'"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((((key0 === "errorCode") || (key0 === "itemId")) || (key0 === "resolution")) || (key0 === "source")) || (key0 === "status")) || (key0 === "target"))){
+const err6 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+if(data.errorCode !== undefined){
+let data0 = data.errorCode;
+if((typeof data0 !== "string") && (data0 !== null)){
+const err7 = {instancePath:instancePath+"/errorCode",schemaPath:"#/properties/errorCode/type",keyword:"type",params:{type: schema32.properties.errorCode.type},message:"must be string,null"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+}
+if(data.itemId !== undefined){
+if(typeof data.itemId !== "string"){
+const err8 = {instancePath:instancePath+"/itemId",schemaPath:"#/properties/itemId/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.resolution !== undefined){
+let data2 = data.resolution;
+const _errs7 = errors;
+let valid1 = false;
+let passing0 = null;
+const _errs8 = errors;
+if(typeof data2 !== "string"){
+const err9 = {instancePath:instancePath+"/resolution",schemaPath:"#/properties/resolution/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+if("open" !== data2){
+const err10 = {instancePath:instancePath+"/resolution",schemaPath:"#/properties/resolution/oneOf/0/const",keyword:"const",params:{allowedValue: "open"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+var _valid0 = _errs8 === errors;
+if(_valid0){
+valid1 = true;
+passing0 = 0;
+}
+const _errs10 = errors;
+if(typeof data2 !== "string"){
+const err11 = {instancePath:instancePath+"/resolution",schemaPath:"#/properties/resolution/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if("acknowledged" !== data2){
+const err12 = {instancePath:instancePath+"/resolution",schemaPath:"#/properties/resolution/oneOf/1/const",keyword:"const",params:{allowedValue: "acknowledged"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+var _valid0 = _errs10 === errors;
+if(_valid0 && valid1){
+valid1 = false;
+passing0 = [passing0, 1];
+}
+else {
+if(_valid0){
+valid1 = true;
+passing0 = 1;
+}
+}
+if(!valid1){
+const err13 = {instancePath:instancePath+"/resolution",schemaPath:"#/properties/resolution/oneOf",keyword:"oneOf",params:{passingSchemas: passing0},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+else {
+errors = _errs7;
+if(vErrors !== null){
+if(_errs7){
+vErrors.length = _errs7;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data.source !== undefined){
+let data3 = data.source;
+if(Array.isArray(data3)){
+const len0 = data3.length;
+for(let i0=0; i0<len0; i0++){
+if(typeof data3[i0] !== "string"){
+const err14 = {instancePath:instancePath+"/source/" + i0,schemaPath:"#/properties/source/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+}
+else {
+const err15 = {instancePath:instancePath+"/source",schemaPath:"#/properties/source/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+if(data.status !== undefined){
+let data5 = data.status;
+const _errs17 = errors;
+let valid4 = false;
+let passing1 = null;
+const _errs18 = errors;
+if(typeof data5 !== "string"){
+const err16 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+if(!(((data5 === "pending") || (data5 === "applied")) || (data5 === "failed"))){
+const err17 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema32.properties.status.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+var _valid1 = _errs18 === errors;
+if(_valid1){
+valid4 = true;
+passing1 = 0;
+}
+const _errs20 = errors;
+if(typeof data5 !== "string"){
+const err18 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+if("prepared" !== data5){
+const err19 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/1/const",keyword:"const",params:{allowedValue: "prepared"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+var _valid1 = _errs20 === errors;
+if(_valid1 && valid4){
+valid4 = false;
+passing1 = [passing1, 1];
+}
+else {
+if(_valid1){
+valid4 = true;
+passing1 = 1;
+}
+const _errs22 = errors;
+if(typeof data5 !== "string"){
+const err20 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/2/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+if("skipped" !== data5){
+const err21 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/2/const",keyword:"const",params:{allowedValue: "skipped"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+var _valid1 = _errs22 === errors;
+if(_valid1 && valid4){
+valid4 = false;
+passing1 = [passing1, 2];
+}
+else {
+if(_valid1){
+valid4 = true;
+passing1 = 2;
+}
+const _errs24 = errors;
+if(typeof data5 !== "string"){
+const err22 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/3/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+if("ambiguous" !== data5){
+const err23 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/3/const",keyword:"const",params:{allowedValue: "ambiguous"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+var _valid1 = _errs24 === errors;
+if(_valid1 && valid4){
+valid4 = false;
+passing1 = [passing1, 3];
+}
+else {
+if(_valid1){
+valid4 = true;
+passing1 = 3;
+}
+}
+}
+}
+if(!valid4){
+const err24 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf",keyword:"oneOf",params:{passingSchemas: passing1},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+else {
+errors = _errs17;
+if(vErrors !== null){
+if(_errs17){
+vErrors.length = _errs17;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data.target !== undefined){
+let data6 = data.target;
+if(Array.isArray(data6)){
+const len1 = data6.length;
+for(let i1=0; i1<len1; i1++){
+if(typeof data6[i1] !== "string"){
+const err25 = {instancePath:instancePath+"/target/" + i1,schemaPath:"#/properties/target/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+}
+}
+else {
+const err26 = {instancePath:instancePath+"/target",schemaPath:"#/properties/target/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+}
+}
+else {
+const err27 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+validate31.errors = vErrors;
+return errors === 0;
+}
+
+export const RunItems = validate32;
+const schema33 = {"additionalProperties":false,"description":"一次运行的逐文件明细。","properties":{"items":{"description":"本次运行的**全部**项（含未执行的），按派发顺序。\n\n不在这里返回 `direction` / `counts`：调用方拿 `runId` 时**必然**\n已经有一份 `RunReport`（列表行或 `get_run`），再带一遍就是同一份事实\n存两处——那是规格 0.6 明令禁止的「两套同义但不兼容的数据结构」的温床。","items":{"additionalProperties":false,"description":"一次运行中**单个文件**的处理结果（PR-003）。\n\n存在的理由：在它之前，历史列表每行只有三个计数，明细区只渲染 `IssueList`。\n一次顺利的整理 `issues` 为空，于是展开后除了「没有发现问题。」什么都没有——\n整理两次以上就会出现多行几乎相同的「已完成 8 · 0 · 0」，\n用户**无法判断哪条历史对应哪次整理**。\n\n数据本身一直存在（`executor/journal.rs` 就记着每个 operation 的\nsource/target，撤销页正是靠它渲染清单），只是**契约没有暴露**。\n这是契约设计遗漏，不是实现 bug。\n\n刻意**不**把它塞进 `RunReport`：历史可达 50 条、每条 8+ 项，\n一次性带回全部路径会让 `list_runs` 变重。规格 MASTER_PLAN:387 对历史分页\n明确提出过「不将正文带回前端」的克制原则，这里遵循同一原则——\n**列表只带摘要，明细按 runId 单独拉**。","properties":{"errorCode":{"description":"失败或未决时的错误码；正常完成时为 `None`。","type":["string","null"]},"itemId":{"type":"string"},"resolution":{"description":"未决事实的人工处置结果。与 `status` 是两个维度（见 `OpStatus` 的说明）。","oneOf":[{"const":"open","description":"尚未处置。","type":"string"},{"const":"acknowledged","description":"用户已核对并明确接受「保留现状」，附有理由。","type":"string"}]},"source":{"description":"这一项当时的**源**位置。","items":{"type":"string"},"type":"array"},"status":{"description":"单个文件操作的状态（规格 8.2）。\n\n迁移规则见 [`crate::domain::states`]。","oneOf":[{"enum":["pending","applied","failed"],"type":"string"},{"const":"prepared","description":"意图记录已持久化，但尚未确认文件是否被改动。","type":"string"},{"const":"skipped","description":"因取消而未派发。","type":"string"},{"const":"ambiguous","description":"无法确定是否已改动 —— 不能猜，必须人工核对。","type":"string"}]},"target":{"description":"这一项当时的**目标**位置。","items":{"type":"string"},"type":"array"}},"required":["itemId","source","target","status","resolution","errorCode"],"type":"object"},"type":"array"},"runId":{"type":"string"}},"required":["runId","items"],"type":"object"};
+
+function validate32(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+let vErrors = null;
+let errors = 0;
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.runId === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "runId"},message:"must have required property '"+"runId"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.items === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "items"},message:"must have required property '"+"items"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((key0 === "items") || (key0 === "runId"))){
+const err2 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+}
+if(data.items !== undefined){
+let data0 = data.items;
+if(Array.isArray(data0)){
+const len0 = data0.length;
+for(let i0=0; i0<len0; i0++){
+let data1 = data0[i0];
+if(data1 && typeof data1 == "object" && !Array.isArray(data1)){
+if(data1.itemId === undefined){
+const err3 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "itemId"},message:"must have required property '"+"itemId"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+if(data1.source === undefined){
+const err4 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "source"},message:"must have required property '"+"source"+"'"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+if(data1.target === undefined){
+const err5 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "target"},message:"must have required property '"+"target"+"'"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+if(data1.status === undefined){
+const err6 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "status"},message:"must have required property '"+"status"+"'"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+if(data1.resolution === undefined){
+const err7 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "resolution"},message:"must have required property '"+"resolution"+"'"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+if(data1.errorCode === undefined){
+const err8 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/required",keyword:"required",params:{missingProperty: "errorCode"},message:"must have required property '"+"errorCode"+"'"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+for(const key1 in data1){
+if(!((((((key1 === "errorCode") || (key1 === "itemId")) || (key1 === "resolution")) || (key1 === "source")) || (key1 === "status")) || (key1 === "target"))){
+const err9 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+if(data1.errorCode !== undefined){
+let data2 = data1.errorCode;
+if((typeof data2 !== "string") && (data2 !== null)){
+const err10 = {instancePath:instancePath+"/items/" + i0+"/errorCode",schemaPath:"#/properties/items/items/properties/errorCode/type",keyword:"type",params:{type: schema33.properties.items.items.properties.errorCode.type},message:"must be string,null"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data1.itemId !== undefined){
+if(typeof data1.itemId !== "string"){
+const err11 = {instancePath:instancePath+"/items/" + i0+"/itemId",schemaPath:"#/properties/items/items/properties/itemId/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+if(data1.resolution !== undefined){
+let data4 = data1.resolution;
+const _errs12 = errors;
+let valid4 = false;
+let passing0 = null;
+const _errs13 = errors;
+if(typeof data4 !== "string"){
+const err12 = {instancePath:instancePath+"/items/" + i0+"/resolution",schemaPath:"#/properties/items/items/properties/resolution/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if("open" !== data4){
+const err13 = {instancePath:instancePath+"/items/" + i0+"/resolution",schemaPath:"#/properties/items/items/properties/resolution/oneOf/0/const",keyword:"const",params:{allowedValue: "open"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+var _valid0 = _errs13 === errors;
+if(_valid0){
+valid4 = true;
+passing0 = 0;
+}
+const _errs15 = errors;
+if(typeof data4 !== "string"){
+const err14 = {instancePath:instancePath+"/items/" + i0+"/resolution",schemaPath:"#/properties/items/items/properties/resolution/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+if("acknowledged" !== data4){
+const err15 = {instancePath:instancePath+"/items/" + i0+"/resolution",schemaPath:"#/properties/items/items/properties/resolution/oneOf/1/const",keyword:"const",params:{allowedValue: "acknowledged"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+var _valid0 = _errs15 === errors;
+if(_valid0 && valid4){
+valid4 = false;
+passing0 = [passing0, 1];
+}
+else {
+if(_valid0){
+valid4 = true;
+passing0 = 1;
+}
+}
+if(!valid4){
+const err16 = {instancePath:instancePath+"/items/" + i0+"/resolution",schemaPath:"#/properties/items/items/properties/resolution/oneOf",keyword:"oneOf",params:{passingSchemas: passing0},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+else {
+errors = _errs12;
+if(vErrors !== null){
+if(_errs12){
+vErrors.length = _errs12;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data1.source !== undefined){
+let data5 = data1.source;
+if(Array.isArray(data5)){
+const len1 = data5.length;
+for(let i1=0; i1<len1; i1++){
+if(typeof data5[i1] !== "string"){
+const err17 = {instancePath:instancePath+"/items/" + i0+"/source/" + i1,schemaPath:"#/properties/items/items/properties/source/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+}
+}
+else {
+const err18 = {instancePath:instancePath+"/items/" + i0+"/source",schemaPath:"#/properties/items/items/properties/source/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err18];
+}
+else {
+vErrors.push(err18);
+}
+errors++;
+}
+}
+if(data1.status !== undefined){
+let data7 = data1.status;
+const _errs22 = errors;
+let valid7 = false;
+let passing1 = null;
+const _errs23 = errors;
+if(typeof data7 !== "string"){
+const err19 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err19];
+}
+else {
+vErrors.push(err19);
+}
+errors++;
+}
+if(!(((data7 === "pending") || (data7 === "applied")) || (data7 === "failed"))){
+const err20 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema33.properties.items.items.properties.status.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err20];
+}
+else {
+vErrors.push(err20);
+}
+errors++;
+}
+var _valid1 = _errs23 === errors;
+if(_valid1){
+valid7 = true;
+passing1 = 0;
+}
+const _errs25 = errors;
+if(typeof data7 !== "string"){
+const err21 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+if("prepared" !== data7){
+const err22 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/1/const",keyword:"const",params:{allowedValue: "prepared"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+var _valid1 = _errs25 === errors;
+if(_valid1 && valid7){
+valid7 = false;
+passing1 = [passing1, 1];
+}
+else {
+if(_valid1){
+valid7 = true;
+passing1 = 1;
+}
+const _errs27 = errors;
+if(typeof data7 !== "string"){
+const err23 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/2/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+if("skipped" !== data7){
+const err24 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/2/const",keyword:"const",params:{allowedValue: "skipped"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
+}
+errors++;
+}
+var _valid1 = _errs27 === errors;
+if(_valid1 && valid7){
+valid7 = false;
+passing1 = [passing1, 2];
+}
+else {
+if(_valid1){
+valid7 = true;
+passing1 = 2;
+}
+const _errs29 = errors;
+if(typeof data7 !== "string"){
+const err25 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/3/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err25];
+}
+else {
+vErrors.push(err25);
+}
+errors++;
+}
+if("ambiguous" !== data7){
+const err26 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf/3/const",keyword:"const",params:{allowedValue: "ambiguous"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err26];
+}
+else {
+vErrors.push(err26);
+}
+errors++;
+}
+var _valid1 = _errs29 === errors;
+if(_valid1 && valid7){
+valid7 = false;
+passing1 = [passing1, 3];
+}
+else {
+if(_valid1){
+valid7 = true;
+passing1 = 3;
+}
+}
+}
+}
+if(!valid7){
+const err27 = {instancePath:instancePath+"/items/" + i0+"/status",schemaPath:"#/properties/items/items/properties/status/oneOf",keyword:"oneOf",params:{passingSchemas: passing1},message:"must match exactly one schema in oneOf"};
+if(vErrors === null){
+vErrors = [err27];
+}
+else {
+vErrors.push(err27);
+}
+errors++;
+}
+else {
+errors = _errs22;
+if(vErrors !== null){
+if(_errs22){
+vErrors.length = _errs22;
+}
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data1.target !== undefined){
+let data8 = data1.target;
+if(Array.isArray(data8)){
+const len2 = data8.length;
+for(let i2=0; i2<len2; i2++){
+if(typeof data8[i2] !== "string"){
+const err28 = {instancePath:instancePath+"/items/" + i0+"/target/" + i2,schemaPath:"#/properties/items/items/properties/target/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err28];
+}
+else {
+vErrors.push(err28);
+}
+errors++;
+}
+}
+}
+else {
+const err29 = {instancePath:instancePath+"/items/" + i0+"/target",schemaPath:"#/properties/items/items/properties/target/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err29];
+}
+else {
+vErrors.push(err29);
+}
+errors++;
+}
+}
+}
+else {
+const err30 = {instancePath:instancePath+"/items/" + i0,schemaPath:"#/properties/items/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err30];
+}
+else {
+vErrors.push(err30);
+}
+errors++;
+}
+}
+}
+else {
+const err31 = {instancePath:instancePath+"/items",schemaPath:"#/properties/items/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err31];
+}
+else {
+vErrors.push(err31);
+}
+errors++;
+}
+}
+if(data.runId !== undefined){
+if(typeof data.runId !== "string"){
+const err32 = {instancePath:instancePath+"/runId",schemaPath:"#/properties/runId/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err32];
+}
+else {
+vErrors.push(err32);
+}
+errors++;
+}
+}
+}
+else {
+const err33 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+validate32.errors = vErrors;
+return errors === 0;
+}
+
+export const RunReport = validate33;
+const schema34 = {"additionalProperties":false,"description":"执行报告。","properties":{"counts":{"additionalProperties":false,"description":"执行结果计数。","properties":{"ambiguous":{"description":"判定不出来、需要人工核对的项数（规格 8.3）。\n\n**单独计数而不是并进 `pending`**：界面上「还没轮到他」和\n「做了但说不清」需要不同的措辞和不同的动作，混在一起用户无从下手。","format":"uint32","minimum":0,"type":"integer"},"applied":{"format":"uint32","minimum":0,"type":"integer"},"failed":{"format":"uint32","minimum":0,"type":"integer"},"pending":{"format":"uint32","minimum":0,"type":"integer"},"skipped":{"format":"uint32","minimum":0,"type":"integer"}},"required":["applied","failed","skipped","pending","ambiguous"],"type":"object"},"direction":{"description":"`apply`（整理）或 `undo`（撤销）。\n\n历史列表**必须**能分清这两种记录：它们都会出现在同一条时间线上，\n而「已完成 3 项」在整理里是「搬走了 3 个文件」、在撤销里是\n「搬回了 3 个文件」——意思正好相反。少了这个字段，界面只能\n给撤销记录也挂一个「撤销」按钮，而那是一次注定被拒绝的点击。","type":"string"},"issues":{"items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"},"planId":{"type":"string"},"runId":{"type":"string"},"stateDigest":{"description":"当前操作事实与冲突集合的摘要，用于防止用户确认一份过期的报告。","type":"string"},"status":{"description":"一次执行（含撤销执行）的状态。","enum":["queued","running","completed","partial","failed","cancelled","recoveryRequired"],"type":"string"}},"required":["runId","planId","direction","stateDigest","status","counts","issues"],"type":"object"};
+
+function validate33(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -6909,7 +7802,7 @@ errors++;
 if(data8.itemId !== undefined){
 let data10 = data8.itemId;
 if((typeof data10 !== "string") && (data10 !== null)){
-const err32 = {instancePath:instancePath+"/issues/" + i0+"/itemId",schemaPath:"#/properties/issues/items/properties/itemId/type",keyword:"type",params:{type: schema32.properties.issues.items.properties.itemId.type},message:"must be string,null"};
+const err32 = {instancePath:instancePath+"/issues/" + i0+"/itemId",schemaPath:"#/properties/issues/items/properties/itemId/type",keyword:"type",params:{type: schema34.properties.issues.items.properties.itemId.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err32];
 }
@@ -6948,7 +7841,7 @@ vErrors.push(err34);
 errors++;
 }
 if(!((data12 === "info") || (data12 === "warning"))){
-const err35 = {instancePath:instancePath+"/issues/" + i0+"/severity",schemaPath:"#/properties/issues/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema32.properties.issues.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+const err35 = {instancePath:instancePath+"/issues/" + i0+"/severity",schemaPath:"#/properties/issues/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema34.properties.issues.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err35];
 }
@@ -7089,7 +7982,7 @@ vErrors.push(err44);
 errors++;
 }
 if(!(((((((data16 === "queued") || (data16 === "running")) || (data16 === "completed")) || (data16 === "partial")) || (data16 === "failed")) || (data16 === "cancelled")) || (data16 === "recoveryRequired"))){
-const err45 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/enum",keyword:"enum",params:{allowedValues: schema32.properties.status.enum},message:"must be equal to one of the allowed values"};
+const err45 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/enum",keyword:"enum",params:{allowedValues: schema34.properties.status.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err45];
 }
@@ -7110,14 +8003,14 @@ vErrors.push(err46);
 }
 errors++;
 }
-validate31.errors = vErrors;
+validate33.errors = vErrors;
 return errors === 0;
 }
 
-export const ScanSummary = validate32;
-const schema33 = {"additionalProperties":false,"description":"一次扫描任务的结果摘要。","properties":{"rootId":{"type":"string"},"scanId":{"type":"string"},"skipped":{"description":"被跳过的条目数。","format":"uint32","minimum":0,"type":"integer"},"taskId":{"description":"规格 5.2：`start_scan` 返回 taskId。","type":"string"},"total":{"description":"枚举到的条目总数（含被跳过的）。","format":"uint32","minimum":0,"type":"integer"},"truncated":{"description":"规格 6.1：达到数量/深度上限时为 true，界面必须要求缩小范围。","type":"boolean"},"usable":{"description":"可参与整理的普通文件数。","format":"uint32","minimum":0,"type":"integer"}},"required":["taskId","scanId","rootId","total","usable","skipped","truncated"],"type":"object"};
+export const ScanSummary = validate34;
+const schema35 = {"additionalProperties":false,"description":"一次扫描任务的结果摘要。","properties":{"rootId":{"type":"string"},"scanId":{"type":"string"},"skipped":{"description":"被跳过的条目数。","format":"uint32","minimum":0,"type":"integer"},"taskId":{"description":"规格 5.2：`start_scan` 返回 taskId。","type":"string"},"total":{"description":"枚举到的条目总数（含被跳过的）。","format":"uint32","minimum":0,"type":"integer"},"truncated":{"description":"规格 6.1：达到数量/深度上限时为 true，界面必须要求缩小范围。","type":"boolean"},"usable":{"description":"可参与整理的普通文件数。","format":"uint32","minimum":0,"type":"integer"}},"required":["taskId","scanId","rootId","total","usable","skipped","truncated"],"type":"object"};
 
-function validate32(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate34(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -7337,14 +8230,14 @@ vErrors.push(err18);
 }
 errors++;
 }
-validate32.errors = vErrors;
+validate34.errors = vErrors;
 return errors === 0;
 }
 
-export const TaskError = validate33;
-const schema34 = {"additionalProperties":false,"description":"任务失败原因的最小结构。\n\n与 `AppError` 字段一致，但定义在 `types` 里以避免 `types` ↔ `errors` 互相依赖。","properties":{"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"}},"required":["code","message","retryable"],"type":"object"};
+export const TaskError = validate35;
+const schema36 = {"additionalProperties":false,"description":"任务失败原因的最小结构。\n\n与 `AppError` 字段一致，但定义在 `types` 里以避免 `types` ↔ `errors` 互相依赖。","properties":{"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"}},"required":["code","message","retryable"],"type":"object"};
 
-function validate33(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate35(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -7437,14 +8330,14 @@ vErrors.push(err7);
 }
 errors++;
 }
-validate33.errors = vErrors;
+validate35.errors = vErrors;
 return errors === 0;
 }
 
-export const TaskSummary = validate34;
-const schema35 = {"additionalProperties":false,"description":"任务状态查询结果。\n\n规格 5.2：页面切换不得终止任务，重新打开界面要能用 `taskId` 查回来。","properties":{"error":{"additionalProperties":false,"description":"失败时的结构化错误；成功或进行中为 `null`。\n\n注意：`AppError` 在 `domain::errors` 里，这里用 `crate::domain::errors::AppError`\n会导致 types.rs 反向依赖 errors.rs。为避免循环，改用脱敏后的最小结构。","properties":{"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"}},"required":["code","message","retryable"],"type":["object","null"]},"processed":{"format":"uint32","minimum":0,"type":"integer"},"scanId":{"description":"扫描类任务完成后的 scanId；其他任务为 `null`。","type":["string","null"]},"status":{"description":"后台任务状态。","oneOf":[{"enum":["queued","running","completed","failed","cancelled"],"type":"string"},{"const":"partial","description":"部分完成：首个失败即停止，已完成项保持完成，不自动回滚。","type":"string"},{"const":"recoveryRequired","description":"存在无法自动判定的执行状态，必须先完成恢复核对。","type":"string"}]},"taskId":{"type":"string"},"total":{"description":"总量尚未确定时为 `null`。","format":"uint32","minimum":0,"type":["integer","null"]}},"required":["taskId","status","processed","total","scanId","error"],"type":"object"};
+export const TaskSummary = validate36;
+const schema37 = {"additionalProperties":false,"description":"任务状态查询结果。\n\n规格 5.2：页面切换不得终止任务，重新打开界面要能用 `taskId` 查回来。","properties":{"error":{"additionalProperties":false,"description":"失败时的结构化错误；成功或进行中为 `null`。\n\n注意：`AppError` 在 `domain::errors` 里，这里用 `crate::domain::errors::AppError`\n会导致 types.rs 反向依赖 errors.rs。为避免循环，改用脱敏后的最小结构。","properties":{"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"}},"required":["code","message","retryable"],"type":["object","null"]},"processed":{"format":"uint32","minimum":0,"type":"integer"},"scanId":{"description":"扫描类任务完成后的 scanId；其他任务为 `null`。","type":["string","null"]},"status":{"description":"后台任务状态。","oneOf":[{"enum":["queued","running","completed","failed","cancelled"],"type":"string"},{"const":"partial","description":"部分完成：首个失败即停止，已完成项保持完成，不自动回滚。","type":"string"},{"const":"recoveryRequired","description":"存在无法自动判定的执行状态，必须先完成恢复核对。","type":"string"}]},"taskId":{"type":"string"},"total":{"description":"总量尚未确定时为 `null`。","format":"uint32","minimum":0,"type":["integer","null"]}},"required":["taskId","status","processed","total","scanId","error"],"type":"object"};
 
-function validate34(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate36(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -7523,7 +8416,7 @@ errors++;
 if(data.error !== undefined){
 let data0 = data.error;
 if((!(data0 && typeof data0 == "object" && !Array.isArray(data0))) && (data0 !== null)){
-const err7 = {instancePath:instancePath+"/error",schemaPath:"#/properties/error/type",keyword:"type",params:{type: schema35.properties.error.type},message:"must be object,null"};
+const err7 = {instancePath:instancePath+"/error",schemaPath:"#/properties/error/type",keyword:"type",params:{type: schema37.properties.error.type},message:"must be object,null"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -7641,7 +8534,7 @@ errors++;
 if(data.scanId !== undefined){
 let data5 = data.scanId;
 if((typeof data5 !== "string") && (data5 !== null)){
-const err17 = {instancePath:instancePath+"/scanId",schemaPath:"#/properties/scanId/type",keyword:"type",params:{type: schema35.properties.scanId.type},message:"must be string,null"};
+const err17 = {instancePath:instancePath+"/scanId",schemaPath:"#/properties/scanId/type",keyword:"type",params:{type: schema37.properties.scanId.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -7668,7 +8561,7 @@ vErrors.push(err18);
 errors++;
 }
 if(!(((((data6 === "queued") || (data6 === "running")) || (data6 === "completed")) || (data6 === "failed")) || (data6 === "cancelled"))){
-const err19 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema35.properties.status.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+const err19 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema37.properties.status.oneOf[0].enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -7783,7 +8676,7 @@ errors++;
 if(data.total !== undefined){
 let data8 = data.total;
 if((!(((typeof data8 == "number") && (!(data8 % 1) && !isNaN(data8))) && (isFinite(data8)))) && (data8 !== null)){
-const err26 = {instancePath:instancePath+"/total",schemaPath:"#/properties/total/type",keyword:"type",params:{type: schema35.properties.total.type},message:"must be integer,null"};
+const err26 = {instancePath:instancePath+"/total",schemaPath:"#/properties/total/type",keyword:"type",params:{type: schema37.properties.total.type},message:"must be integer,null"};
 if(vErrors === null){
 vErrors = [err26];
 }
@@ -7816,14 +8709,14 @@ vErrors.push(err28);
 }
 errors++;
 }
-validate34.errors = vErrors;
+validate36.errors = vErrors;
 return errors === 0;
 }
 
-export const UndoItem = validate35;
-const schema36 = {"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"};
+export const UndoItem = validate37;
+const schema38 = {"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"};
 
-function validate35(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate37(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -8141,14 +9034,14 @@ vErrors.push(err23);
 }
 errors++;
 }
-validate35.errors = vErrors;
+validate37.errors = vErrors;
 return errors === 0;
 }
 
-export const UndoOutcome = validate36;
-const schema37 = {"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]};
+export const UndoOutcome = validate38;
+const schema39 = {"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]};
 
-function validate36(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate38(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 const _errs0 = errors;
@@ -8265,14 +9158,14 @@ vErrors = null;
 }
 }
 }
-validate36.errors = vErrors;
+validate38.errors = vErrors;
 return errors === 0;
 }
 
-export const UndoPreview = validate37;
-const schema38 = {"additionalProperties":false,"description":"撤销预览（规格 8.4）。\n\n与执行前的计划预览同构：**也有摘要和一次性确认**，\n因为撤销同样是一次会改动用户文件的操作，不是异常后的无条件补偿。","properties":{"alreadyUndoneCount":{"description":"已经撤销过的项数（重复撤销时它们不会再次被搬动）。","format":"uint32","minimum":0,"type":"integer"},"conflictCount":{"description":"有冲突的项数。","format":"uint32","minimum":0,"type":"integer"},"digest":{"description":"当前撤销事实的摘要。执行时必须原样带回，变了就说明这一屏已经过期。","type":"string"},"expiresAt":{"description":"UTC RFC3339，最多 5 分钟有效。","type":["string","null"]},"items":{"items":{"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"},"type":"array"},"originalRunId":{"type":"string"},"readyCount":{"description":"可安全撤销的项数。","format":"uint32","minimum":0,"type":"integer"},"undoPlanId":{"description":"本次预览落库的撤销计划 id。执行时原样带回，用来消费一次性令牌。","type":"string"},"undoToken":{"description":"一次性令牌。**只有**后端能签发；前端不得自行生成。","type":["string","null"]}},"required":["undoPlanId","originalRunId","digest","items","readyCount","conflictCount","alreadyUndoneCount","undoToken","expiresAt"],"type":"object"};
+export const UndoPreview = validate39;
+const schema40 = {"additionalProperties":false,"description":"撤销预览（规格 8.4）。\n\n与执行前的计划预览同构：**也有摘要和一次性确认**，\n因为撤销同样是一次会改动用户文件的操作，不是异常后的无条件补偿。","properties":{"alreadyUndoneCount":{"description":"已经撤销过的项数（重复撤销时它们不会再次被搬动）。","format":"uint32","minimum":0,"type":"integer"},"conflictCount":{"description":"有冲突的项数。","format":"uint32","minimum":0,"type":"integer"},"digest":{"description":"当前撤销事实的摘要。执行时必须原样带回，变了就说明这一屏已经过期。","type":"string"},"expiresAt":{"description":"UTC RFC3339，最多 5 分钟有效。","type":["string","null"]},"items":{"items":{"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"},"type":"array"},"originalRunId":{"type":"string"},"readyCount":{"description":"可安全撤销的项数。","format":"uint32","minimum":0,"type":"integer"},"undoPlanId":{"description":"本次预览落库的撤销计划 id。执行时原样带回，用来消费一次性令牌。","type":"string"},"undoToken":{"description":"一次性令牌。**只有**后端能签发；前端不得自行生成。","type":["string","null"]}},"required":["undoPlanId","originalRunId","digest","items","readyCount","conflictCount","alreadyUndoneCount","undoToken","expiresAt"],"type":"object"};
 
-function validate37(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate39(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -8367,7 +9260,7 @@ vErrors.push(err8);
 errors++;
 }
 for(const key0 in data){
-if(!(func2.call(schema38.properties, key0))){
+if(!(func2.call(schema40.properties, key0))){
 const err9 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err9];
@@ -8443,7 +9336,7 @@ errors++;
 if(data.expiresAt !== undefined){
 let data3 = data.expiresAt;
 if((typeof data3 !== "string") && (data3 !== null)){
-const err15 = {instancePath:instancePath+"/expiresAt",schemaPath:"#/properties/expiresAt/type",keyword:"type",params:{type: schema38.properties.expiresAt.type},message:"must be string,null"};
+const err15 = {instancePath:instancePath+"/expiresAt",schemaPath:"#/properties/expiresAt/type",keyword:"type",params:{type: schema40.properties.expiresAt.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err15];
 }
@@ -8839,7 +9732,7 @@ errors++;
 if(data.undoToken !== undefined){
 let data18 = data.undoToken;
 if((typeof data18 !== "string") && (data18 !== null)){
-const err45 = {instancePath:instancePath+"/undoToken",schemaPath:"#/properties/undoToken/type",keyword:"type",params:{type: schema38.properties.undoToken.type},message:"must be string,null"};
+const err45 = {instancePath:instancePath+"/undoToken",schemaPath:"#/properties/undoToken/type",keyword:"type",params:{type: schema40.properties.undoToken.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err45];
 }
@@ -8860,14 +9753,14 @@ vErrors.push(err46);
 }
 errors++;
 }
-validate37.errors = vErrors;
+validate39.errors = vErrors;
 return errors === 0;
 }
 
-export const UndoReport = validate38;
-const schema39 = {"additionalProperties":false,"description":"撤销执行的分项结果（规格 T09）。\n\n「已撤销 / 有冲突 / 未处理」分开计数是硬要求：把部分撤销标成全部成功，\n会让用户以为文件都回去了，而实际上还有几项留在原地。","properties":{"alreadyUndone":{"description":"本次之前就已经撤销过、这次只是再次确认的项数。","format":"uint32","minimum":0,"type":"integer"},"conflicted":{"description":"因冲突而保留现状的项数。","format":"uint32","minimum":0,"type":"integer"},"items":{"items":{"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"},"type":"array"},"originalRunId":{"type":"string"},"reverted":{"description":"已成功移回的项数。","format":"uint32","minimum":0,"type":"integer"},"runId":{"description":"本次撤销产生的 run（`direction = 'undo'`，可用 `get_run` 查询）。","type":"string"},"status":{"description":"一次执行（含撤销执行）的状态。","enum":["queued","running","completed","partial","failed","cancelled","recoveryRequired"],"type":"string"},"untouched":{"description":"用户没选中、因而未处理的项数。","format":"uint32","minimum":0,"type":"integer"},"warnings":{"description":"目录清理失败等**不影响已移回文件事实**的告警。\n\n单独一个列表而不是塞进 `items`：文件已经安全回去了，\n把「空目录没删掉」混进分项结果会让用户以为撤销失败了。","items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"}},"required":["runId","originalRunId","status","reverted","conflicted","alreadyUndone","untouched","items","warnings"],"type":"object"};
+export const UndoReport = validate40;
+const schema41 = {"additionalProperties":false,"description":"撤销执行的分项结果（规格 T09）。\n\n「已撤销 / 有冲突 / 未处理」分开计数是硬要求：把部分撤销标成全部成功，\n会让用户以为文件都回去了，而实际上还有几项留在原地。","properties":{"alreadyUndone":{"description":"本次之前就已经撤销过、这次只是再次确认的项数。","format":"uint32","minimum":0,"type":"integer"},"conflicted":{"description":"因冲突而保留现状的项数。","format":"uint32","minimum":0,"type":"integer"},"items":{"items":{"additionalProperties":false,"description":"撤销预览中的一项。","properties":{"itemId":{"type":"string"},"message":{"description":"判定原因，直接显示在界面上。","type":"string"},"operationId":{"description":"被撤销的那个原操作。","type":"string"},"outcome":{"description":"撤销预览中单项的判定。\n\n与 `OpStatus` 是**不同维度**：`OpStatus` 说的是「原操作当初做成了没有」，\n这里说的是「**现在**能不能把它移回去」。同一项完全可以是\n`status = applied` 而 `outcome = conflict`——那正是「整理后被改动」的情形。","oneOf":[{"const":"ready","description":"条件都满足，可以安全移回。**默认选中**。","type":"string"},{"const":"conflict","description":"原路径被占用、内容被改动，或原父目录消失。**默认不选中**。","type":"string"},{"const":"alreadyUndone","description":"之前已经撤销过。重复撤销只回报「已完成」，绝不再搬动文件。","type":"string"}]},"selected":{"description":"是否被选中执行。`Conflict` 与 `AlreadyUndone` 初始为 false。","type":"boolean"},"source":{"description":"撤销时的**源** = 原操作的目标位置。","items":{"type":"string"},"type":"array"},"target":{"description":"撤销时的**目标** = 原操作的源位置。","items":{"type":"string"},"type":"array"}},"required":["operationId","itemId","source","target","outcome","selected","message"],"type":"object"},"type":"array"},"originalRunId":{"type":"string"},"reverted":{"description":"已成功移回的项数。","format":"uint32","minimum":0,"type":"integer"},"runId":{"description":"本次撤销产生的 run（`direction = 'undo'`，可用 `get_run` 查询）。","type":"string"},"status":{"description":"一次执行（含撤销执行）的状态。","enum":["queued","running","completed","partial","failed","cancelled","recoveryRequired"],"type":"string"},"untouched":{"description":"用户没选中、因而未处理的项数。","format":"uint32","minimum":0,"type":"integer"},"warnings":{"description":"目录清理失败等**不影响已移回文件事实**的告警。\n\n单独一个列表而不是塞进 `items`：文件已经安全回去了，\n把「空目录没删掉」混进分项结果会让用户以为撤销失败了。","items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"}},"required":["runId","originalRunId","status","reverted","conflicted","alreadyUndone","untouched","items","warnings"],"type":"object"};
 
-function validate38(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate40(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -8962,7 +9855,7 @@ vErrors.push(err8);
 errors++;
 }
 for(const key0 in data){
-if(!(func2.call(schema39.properties, key0))){
+if(!(func2.call(schema41.properties, key0))){
 const err9 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err9];
@@ -9419,7 +10312,7 @@ vErrors.push(err43);
 errors++;
 }
 if(!(((((((data16 === "queued") || (data16 === "running")) || (data16 === "completed")) || (data16 === "partial")) || (data16 === "failed")) || (data16 === "cancelled")) || (data16 === "recoveryRequired"))){
-const err44 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/enum",keyword:"enum",params:{allowedValues: schema39.properties.status.enum},message:"must be equal to one of the allowed values"};
+const err44 = {instancePath:instancePath+"/status",schemaPath:"#/properties/status/enum",keyword:"enum",params:{allowedValues: schema41.properties.status.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err44];
 }
@@ -9528,7 +10421,7 @@ errors++;
 if(data19.itemId !== undefined){
 let data21 = data19.itemId;
 if((typeof data21 !== "string") && (data21 !== null)){
-const err53 = {instancePath:instancePath+"/warnings/" + i3+"/itemId",schemaPath:"#/properties/warnings/items/properties/itemId/type",keyword:"type",params:{type: schema39.properties.warnings.items.properties.itemId.type},message:"must be string,null"};
+const err53 = {instancePath:instancePath+"/warnings/" + i3+"/itemId",schemaPath:"#/properties/warnings/items/properties/itemId/type",keyword:"type",params:{type: schema41.properties.warnings.items.properties.itemId.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err53];
 }
@@ -9567,7 +10460,7 @@ vErrors.push(err55);
 errors++;
 }
 if(!((data23 === "info") || (data23 === "warning"))){
-const err56 = {instancePath:instancePath+"/warnings/" + i3+"/severity",schemaPath:"#/properties/warnings/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema39.properties.warnings.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+const err56 = {instancePath:instancePath+"/warnings/" + i3+"/severity",schemaPath:"#/properties/warnings/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema41.properties.warnings.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err56];
 }
@@ -9670,14 +10563,14 @@ vErrors.push(err62);
 }
 errors++;
 }
-validate38.errors = vErrors;
+validate40.errors = vErrors;
 return errors === 0;
 }
 
-export const ValidationReport = validate39;
-const schema40 = {"additionalProperties":false,"description":"校验报告。","properties":{"digest":{"description":"由后端对固定字段的规范序列化结果计算 SHA-256。","type":"string"},"executableCount":{"format":"uint32","minimum":0,"type":"integer"},"expiresAt":{"description":"UTC RFC3339，最多 5 分钟有效。","type":["string","null"]},"issues":{"items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"},"planId":{"type":"string"},"revision":{"description":"该报告对应的计划版本。与当前计划版本不一致即视为过期。","format":"uint32","minimum":0,"type":"integer"},"validationToken":{"description":"一次性令牌。**只有**后端能生成，前端不得自行生成或伪造。","type":["string","null"]}},"required":["planId","revision","digest","executableCount","issues","validationToken","expiresAt"],"type":"object"};
+export const ValidationReport = validate41;
+const schema42 = {"additionalProperties":false,"description":"校验报告。","properties":{"digest":{"description":"由后端对固定字段的规范序列化结果计算 SHA-256。","type":"string"},"executableCount":{"format":"uint32","minimum":0,"type":"integer"},"expiresAt":{"description":"UTC RFC3339，最多 5 分钟有效。","type":["string","null"]},"issues":{"items":{"additionalProperties":false,"description":"校验或执行过程中的一个问题。","properties":{"code":{"type":"string"},"itemId":{"description":"与具体计划项相关时给出；全局问题为 `None`。","type":["string","null"]},"message":{"type":"string"},"severity":{"description":"校验问题的严重度。","oneOf":[{"enum":["info","warning"],"type":"string"},{"const":"block","description":"阻断项：只要存在，就不能生成可执行计划。","type":"string"}]}},"required":["code","severity","itemId","message"],"type":"object"},"type":"array"},"planId":{"type":"string"},"revision":{"description":"该报告对应的计划版本。与当前计划版本不一致即视为过期。","format":"uint32","minimum":0,"type":"integer"},"validationToken":{"description":"一次性令牌。**只有**后端能生成，前端不得自行生成或伪造。","type":["string","null"]}},"required":["planId","revision","digest","executableCount","issues","validationToken","expiresAt"],"type":"object"};
 
-function validate39(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate41(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 let vErrors = null;
 let errors = 0;
 if(data && typeof data == "object" && !Array.isArray(data)){
@@ -9803,7 +10696,7 @@ errors++;
 if(data.expiresAt !== undefined){
 let data2 = data.expiresAt;
 if((typeof data2 !== "string") && (data2 !== null)){
-const err11 = {instancePath:instancePath+"/expiresAt",schemaPath:"#/properties/expiresAt/type",keyword:"type",params:{type: schema40.properties.expiresAt.type},message:"must be string,null"};
+const err11 = {instancePath:instancePath+"/expiresAt",schemaPath:"#/properties/expiresAt/type",keyword:"type",params:{type: schema42.properties.expiresAt.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err11];
 }
@@ -9887,7 +10780,7 @@ errors++;
 if(data4.itemId !== undefined){
 let data6 = data4.itemId;
 if((typeof data6 !== "string") && (data6 !== null)){
-const err18 = {instancePath:instancePath+"/issues/" + i0+"/itemId",schemaPath:"#/properties/issues/items/properties/itemId/type",keyword:"type",params:{type: schema40.properties.issues.items.properties.itemId.type},message:"must be string,null"};
+const err18 = {instancePath:instancePath+"/issues/" + i0+"/itemId",schemaPath:"#/properties/issues/items/properties/itemId/type",keyword:"type",params:{type: schema42.properties.issues.items.properties.itemId.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err18];
 }
@@ -9926,7 +10819,7 @@ vErrors.push(err20);
 errors++;
 }
 if(!((data8 === "info") || (data8 === "warning"))){
-const err21 = {instancePath:instancePath+"/issues/" + i0+"/severity",schemaPath:"#/properties/issues/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema40.properties.issues.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
+const err21 = {instancePath:instancePath+"/issues/" + i0+"/severity",schemaPath:"#/properties/issues/items/properties/severity/oneOf/0/enum",keyword:"enum",params:{allowedValues: schema42.properties.issues.items.properties.severity.oneOf[0].enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -10058,7 +10951,7 @@ errors++;
 if(data.validationToken !== undefined){
 let data11 = data.validationToken;
 if((typeof data11 !== "string") && (data11 !== null)){
-const err30 = {instancePath:instancePath+"/validationToken",schemaPath:"#/properties/validationToken/type",keyword:"type",params:{type: schema40.properties.validationToken.type},message:"must be string,null"};
+const err30 = {instancePath:instancePath+"/validationToken",schemaPath:"#/properties/validationToken/type",keyword:"type",params:{type: schema42.properties.validationToken.type},message:"must be string,null"};
 if(vErrors === null){
 vErrors = [err30];
 }
@@ -10079,6 +10972,6 @@ vErrors.push(err31);
 }
 errors++;
 }
-validate39.errors = vErrors;
+validate41.errors = vErrors;
 return errors === 0;
 }

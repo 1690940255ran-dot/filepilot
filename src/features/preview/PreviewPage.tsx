@@ -219,6 +219,18 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
     if (executingRef.current) return
     executingRef.current = true
 
+    /*
+      PR-004：**先收对话框，再 await**。
+
+      原先 `setConfirming(false)` 排在 `await execute_plan` 之后（第 236 行），
+      于是 952 个文件的场景下对话框一直亮着、按钮一直可点、主界面毫无变化——
+      用户看到的就是「点了没反应」，进而重复点击或强杀进程。
+
+      关闭时机必须与「后端令牌是否已消费」解耦：用户点了确认，这一屏的使命
+      就结束了，剩下的是等待。令牌真有问题时下面的 catch 会把错误显示出来，
+      不依赖这个对话框还开着。
+    */
+    setConfirming(false)
     setBusy(true)
     setCancelRequested(false)
     setProgress(null)
@@ -233,7 +245,6 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
         validationToken: state.confirmation.token,
       })
       setReport(result)
-      setConfirming(false)
       // 令牌已被后端消费，本地确认随之失效
       dispatch({ type: 'confirmationCleared' })
     } catch (raw) {
@@ -449,10 +460,33 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
             )}
           </div>
 
-          {busy && progress && (
-            <p className="notice" role="status">
-              {t.preview.progressLabel} {progress.processed}
-              {progress.total === null ? '' : ` / ${progress.total}`}
+          {/*
+            PR-004：进度必须**独立于对话框**渲染，并且真的能被看到。
+
+            原先的写法是 `busy && progress` —— 那些用例里 `progress` 还是 null
+            （后端连一条事件都还没推来），于是执行的最初几秒完全没有反馈；
+            而且它与对话框同级，不在遮罩之上，被挡住看不见。
+
+            现在：面板位于操作行之前，用 `sticky` 贴在视口底部，
+            因此长列表滚动时它始终在视野里。文案分两档——
+            还没有进度事件时说「正在整理…」，有事件后才显示 `x / y`。
+          */}
+          {busy && (
+            /*
+              `aria-label` 不是装饰：这个页面上有三处 `role="status"`
+              （进度面板、禁用理由、停止提示），无名状态下读屏和测试都无法
+              区分谁在说话。加上可访问名之后它才是一个**可点名**的区域。
+            */
+            <p
+              className="progress-panel"
+              role="status"
+              aria-label={t.preview.progressRegionLabel}
+            >
+              {progress === null
+                ? t.preview.executing
+                : `${t.preview.progressLabel} ${progress.processed}${
+                    progress.total === null ? '' : ` / ${progress.total}`
+                  }`}
             </p>
           )}
 
@@ -499,6 +533,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
             selectedCount={selected}
             confirmation={state.confirmation}
             nowMs={nowMs}
+            busy={busy}
             onCancel={() => setConfirming(false)}
             onConfirm={() => void execute()}
           />

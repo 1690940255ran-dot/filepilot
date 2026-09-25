@@ -32,6 +32,7 @@ export type CommandName =
   | 'execute_plan'
   | 'get_run'
   | 'list_runs'
+  | 'get_run_items'
   | 'get_recovery'
   | 'acknowledge_recovery'
   | 'recover_pending_runs'
@@ -252,6 +253,7 @@ const RESPONSE_CONTRACT: Record<CommandName, ResponseContract> = {
   execute_plan: { kind: 'schema', definition: 'RunReport' },
   get_run: { kind: 'schema', definition: 'RunReport' },
   list_runs: { kind: 'array', item: 'RunReport' },
+  get_run_items: { kind: 'schema', definition: 'RunItems' },
   get_recovery: { kind: 'schema', definition: 'RecoveryReport' },
   acknowledge_recovery: { kind: 'schema', definition: 'RecoveryReport' },
   recover_pending_runs: { kind: 'array', item: 'RecoveryReport' },
@@ -270,6 +272,8 @@ const NULLABLE_RESPONSE: ReadonlySet<CommandName> = new Set([
   'get_plan',
   'validate_plan',
   'get_run',
+  // PR-003：明细同理——run 不存在就是 null，与 get_run 口径一致。
+  'get_run_items',
   // 撤销报告同理：按 runId 查不到就是「这个 id 不存在」，不是错误。
   'get_undo_report',
   // 恢复命令一律返回真实报告，不允许为 null：

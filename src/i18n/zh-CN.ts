@@ -85,6 +85,26 @@ export const zhCN = {
     statusRecoveryRequired: '需要人工核对',
     statusRunning: '进行中',
     statusQueued: '排队中',
+
+    // PR-003：逐文件明细
+    //
+    // 在加这一组之前，明细区只渲染 `IssueList`，而一次顺利的整理 issues 为空，
+    // 于是展开后只有「没有发现问题。」——整理两次以上就分不清哪条是哪次。
+    itemDetailHeading: '这次具体动了哪些文件',
+    itemDetailLoading: '正在读取明细…',
+    itemDetailEmpty: '这次执行没有产生任何文件操作记录。',
+    itemDetailLoadFailed: '无法读取这次整理的明细。',
+    itemRetry: '重试',
+    itemColumnSource: '原位置',
+    itemColumnTarget: '整理后',
+    itemColumnStatus: '结果',
+    itemStatusSummary: (total: number, failed: number) =>
+      failed === 0 ? `共 ${total} 项，全部正常` : `共 ${total} 项，其中 ${failed} 项未完成`,
+    /*
+      计划标识。列表行上显示它的前 8 位，用来区分「哪条历史对应哪次整理」。
+      同一次生成的计划被执行、被撤销，标识相同；两次不同的整理，标识必然不同。
+    */
+    planIdLabel: '计划',
   },
 
   settings: {
@@ -273,6 +293,13 @@ export const zhCN = {
     cancelRequested:
       '已发出停止请求。正在处理的那一项会先完成（半途而废会留下无法判定的状态），之后的项不会再动。',
     progressLabel: '已整理',
+    // 进度区域的**可访问名**。
+    //
+    // 页面上有三处 `role="status"`：进度面板、禁用理由列表、停止请求提示。
+    // 读屏用户听到的是三段无名公告，分不清哪句在说「正在做什么」。
+    // 给进度面板一个可访问名之后，它成为一个可被点名定位的区域——
+    // 「整理进度」这个区域在说话，而不是又冒出一句无主的话。
+    progressRegionLabel: '整理进度',
   },
 
   recovery: {

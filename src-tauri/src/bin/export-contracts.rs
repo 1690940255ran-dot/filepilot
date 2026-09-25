@@ -18,9 +18,9 @@ use filepilot_lib::domain::errors::AppError;
 use filepilot_lib::domain::types::{
     AppSettings, Evidence, Extraction, ExtractionStatus, FilePage, FileRecord, Fingerprint, Issue,
     Mode, OpResolution, OpStatus, Plan, PlanAction, PlanItem, PlanItemEdit, PlanItemOrigin,
-    PlanStatus, Proposal, RecoveryItem, RecoveryReport, Risk, RootSummary, RunCounts, RunReport,
-    RunStatus, ScanSummary, TaskError, TaskStatus, TaskSummary, UndoItem, UndoOutcome, UndoPreview,
-    UndoReport, UndoStatus, ValidationReport,
+    PlanStatus, Proposal, RecoveryItem, RecoveryReport, Risk, RootSummary, RunCounts, RunItem,
+    RunItems, RunReport, RunStatus, ScanSummary, TaskError, TaskStatus, TaskSummary, UndoItem,
+    UndoOutcome, UndoPreview, UndoReport, UndoStatus, ValidationReport,
 };
 use filepilot_lib::extractors::protocol::OcrAvailabilityReport;
 use filepilot_lib::planner::PlanBuild;
@@ -118,6 +118,11 @@ fn generate_typescript() -> String {
     emit(&mut out, ValidationReport::decl(&config));
     emit(&mut out, RunCounts::decl(&config));
     emit(&mut out, RunReport::decl(&config));
+    // PR-003：get_run_items 的返回值。`RunItem` 也必须 emit ——
+    // `RunItems` 的 TS 定义会引用它（`items: Array<RunItem>`），
+    // 不生成它会报「Cannot find name」。这个坑在 DisclosurePreview 上踩过两次。
+    emit(&mut out, RunItem::decl(&config));
+    emit(&mut out, RunItems::decl(&config));
     // T08：崩溃恢复的核对结果
     emit(&mut out, RecoveryItem::decl(&config));
     emit(&mut out, RecoveryReport::decl(&config));
@@ -252,6 +257,13 @@ fn generate_json_schema() -> serde_json::Value {
     );
     // execute_plan / get_run 的返回值
     definitions.insert("RunReport".to_owned(), schema_value::<RunReport>());
+    // PR-003：get_run_items 的返回值，以及它引用的 RunItem。
+    //
+    // 两者都必须进 schema：`RunItems` 内联了 `RunItem`，少登记 `RunItem`
+    // 前端 `decodeResponse` 会在运行时找不到定义直接抛错——
+    // 那种失败看起来像「历史打不开了」，实际是契约漏登记。
+    definitions.insert("RunItem".to_owned(), schema_value::<RunItem>());
+    definitions.insert("RunItems".to_owned(), schema_value::<RunItems>());
     // T08：get_recovery / acknowledge_recovery / recover_pending_runs 的返回值
     definitions.insert("RecoveryItem".to_owned(), schema_value::<RecoveryItem>());
     definitions.insert(
