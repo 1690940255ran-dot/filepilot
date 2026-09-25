@@ -130,8 +130,13 @@ cargo test --release --manifest-path src-tauri/Cargo.toml \
 | 范围 | 命令 | 结果 | 说明 |
 |---|---|---|---|
 | Rust 全量 | `cargo test --features failpoints -- --test-threads=1` | **687 通过 / 0 失败 / 2 ignored**（19 个 `test result` 行） | **真实 NTFS 文件操作**，不是 mock |
-| 前端 | `pnpm test` | **182 通过 / 14 文件** | 契约 mock |
+| 前端 | `pnpm test` | **215 通过 / 17 文件** | 契约 mock |
 | 端到端（浏览器） | `pnpm test:e2e` | **4 通过** | **契约 mock**——见下 |
+
+> 前端计数 **215 / 17** 为 2026-09-24 复跑（PR-001~004 批次修复后）。
+> 此前记为 182 / 14；两轮增量来自本次为四条缺陷新增的三个测试文件，
+> 见 §4.1.3。Rust 侧仍为 687 / 0，与批次前一致
+> （本次改的是契约层新增类型与命令，未触既有用例）。
 
 > **`pnpm test:e2e` 没有验证真实文件操作。** 它跑在 Playwright 的 Web 模式下，
 > 所有 IPC 都由严格契约 mock 提供（见 `tests/e2e/fixtures.ts`）。它验的是
@@ -234,6 +239,45 @@ test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 >
 > 本轮**不改** `Cargo.toml`（无 bug，且改动牵动 workspace/harness 等无法在不推送的前提下
 > 完整验证的配置）。若将来要新增 `[[test]]`，先把 `[[bin]]` 挪到 `[profile.*]` 之后。
+
+#### 4.1.3 PR-001~004 批次新增用例（2026-09-24）
+
+四条发布后缺陷的回归用例，共 **33 条 / 3 个新文件**，
+前端总数因此由 182 升到 215。缺陷描述见 `docs/POST_RELEASE_TODO.md`。
+
+| 文件 | 条数 | 覆盖 | 关键观测条件 |
+|---|---|---|---|
+| `tests/ui/confirm-feedback.test.tsx` | 6 | PR-004 | `execute_plan` **永不 resolve** |
+| `tests/ui/history-items.test.tsx` | 12 | PR-003 | 明细按 runId 懒加载 |
+| `tests/ui/presentation-invariants.test.ts` | 15 | PR-001/002/004 | 解析 `styles.css` 源码 |
+
+**PR-004 为什么必须冻结执行**：`execute_plan` 用一个立即完成的 Promise 替身，
+`await` 一闪而过，对话框瞬间关闭，断言**永远是绿的**——这正是 C 节与 D 节
+验收漏掉这个缺陷的原因（当时只测了 8~10 个文件）。
+所以用例固定使用 `new Promise(() => {})` 让执行**永不返回**，
+把「执行期间」这个中间态变成可观测的。
+
+**PR-001/002 的诚实边界（重要）**：**jsdom 不实现 CSS 级联与布局**。
+任何形如「这两个元素间距是多少」「这个数字有没有右对齐」的断言，
+在 jsdom 里都是**真空为真**（vacuously green）——元素没有计算样式，
+比较结果永远相等，测试通过但不证明任何事。
+因此这些用例**改为解析 `src/styles.css` 源码**，断言**结构性不变量**：
+
+| 断言 | 防的是什么 |
+|---|---|
+| 五个 `.issue*` 类都有规则 | 退回「类名没有任何样式」的原始缺陷状态 |
+| `.issue` 用 `display:flex` + `gap` | 退回「靠相邻 margin 凑间距」的脆弱写法 |
+| `.issue-scope` 有等宽字体 + 底色 | 退回「作用域与正文视觉同级、读成一句话」 |
+| 三个 `.badge-*` 存在 | 徽章退化成裸文本 |
+| `.modal-backdrop` 是 `fixed` + `inset:0` | 遮罩不再覆盖全屏 |
+| `.progress-panel` 是 `sticky` + `tabular-nums` | 进度面板被长列表顶出视野 |
+| `.info-grid dd` 右对齐 + `tabular-nums` | PR-002 的数字列错位 |
+| `.info-grid` 第一列不是 `auto` | 标签列宽随内容抖动 |
+
+> **这证明的是什么**：不会**退回**「完全没有样式」的状态。
+> **这不能证明**「看起来好看」——间距是否舒适、颜色对比是否足够、
+> 在 125% 缩放下会不会错位，jsdom 一概判不了。
+> 后者只能靠 §C2 / §D2 的真机肉眼验收。**两边的结论不可互相替代。**
 
 ### 4.2 大文件哈希的进度与取消
 

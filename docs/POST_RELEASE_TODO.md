@@ -14,156 +14,116 @@
 
 ## 待修
 
-### PR-001 问题列表的「作用域」标签与正文无视觉间隔，易被误读
-
-- **发现时间**：2026-09-25，T17 真机验收（VMware Win10 18363 平台探测）
-- **现象**：预览页问题列表里，每条问题的正文与右侧的作用域 ID 紧贴在一起，
-  读起来像一句话：
-
-  ```
-  提示 目标目录 文档 尚不存在, 执行时会创建9d933692-4b5b-46b6-b6f1-941f87dc6800
-  ```
-
-- **证据**：`docs/screenshots/` 中 T17 预览页截图（8 文件规则模式预览）。
-  代码定位：`src/features/preview/IssueList.tsx:42-48`，三个相邻 `<span>`
-  （`issue-badge` / `issue-message` / `issue-scope`）之间没有可见间距，
-  `issue-scope` 渲染的是 `issue.itemId`，即 `PlanItem.id`（UUID）。
-
-- **影响面**：纯 UI 观感，无功能影响 —— 文件移动、`issue.message` 内容均正确。
-  但 UUID 对用户无意义，且紧贴正文会让人误以为文案拼错了（本次验收中
-  连维护者本人第一眼都判断成"文案 bug"，并据此做了错误归因）。
-
-- **为什么暂缓**：不影响 C/D/E/F/G 任何一节的判定。改 UI 需重打包。
-
-- **建议改法**（二选一，倾向后者）：
-  1. 给 `.issue-scope` 加左间距 + 弱化颜色（次要文本样式）；
-  2. 把 `issue.itemId` 换成人类可读的定位，例如「第 3 项」——需要
-     `IssueList` 拿到 items 顺序，或由后端在 `Issue` 上多带一个序号字段。
-     注意：`Issue.itemId` 是 `Option<Id>`，全局问题为 `None` 时已有
-     `t.preview.globalIssue` 兜底文案，改动时保持这条分支不变。
-
-### PR-002 执行结果统计的数字列未对齐，「已移动 8」明显右偏
-
-- **发现时间**：2026-09-25，T17 真机验收（VMware Win10 18363 平台探测），C 节
-- **现象**：执行结果面板里四行统计，`已移动` 的数值 `8` 位置明显靠右，
-  与下面三行的 `0` 不在同一列：
-
-  ```
-  已移动    8
-  失败      0
-  未执行    0
-  未完成    0
-  ```
-
-- **影响面**：纯观感。统计口径正确（8/0/0/0 与实际移动数一致，已验证）。
-- **为什么暂缓**：不影响判定，改样式需重打包。与 PR-001 同属展示层，一并处理。
-- **建议改法**：统计行的数值列统一右对齐并给定固定列宽
-  （`font-variant-numeric: tabular-nums` + 统一 `text-align`），
-  避免数字位数变化时列宽跳动。
+（暂无。PR-001 ~ PR-004 已于 2026-09-24 批量修复，见「已修复」。）
 
 ---
 
-### PR-003 整理历史看不到「这次具体动了哪些文件」，多次整理后无法区分记录
+## 已修复
 
-- **发现时间**：2026-09-25，T17 真机验收（用户主动反馈，E 节过程中）
-- **现象**：历史列表每行只显示状态、方向、以及三个计数
-  （`已完成 N · 失败 N · 未执行 N`），没有任何文件名或路径。
-  点「明细」展开后，明细区**只渲染 `IssueList`** —— 一次顺利的整理
-  `issues` 为空，于是展开后除了「没有发现问题。」什么都没有。
-  整理两次以上就会出现多行几乎相同的「已完成 8 · 0 · 0」，
-  用户**无法判断哪条历史对应哪次整理**。
+### PR-001 ~ PR-004 批量修复
 
-- **证据**：
-  - `src/features/history/HistoryPage.tsx:151` —— `run-detail` 内只有
-    `<IssueList issues={run.issues} />`，没有任何逐项清单渲染。
-  - `src/features/history/HistoryPage.tsx:131-137` —— 摘要行只有 counts。
-  - `src-tauri/src/domain/types.rs:357-372` —— `RunReport` 字段为
-    `runId / planId / direction / stateDigest / status / counts / issues`，
-    **没有逐文件明细字段**。
-  - 数据本身是有的：`executor/journal.rs` 记录了每个 operation 的
-    source/target，撤销页（`UndoPage`）正是靠它渲染逐项清单。
-    即**数据在，契约没暴露**。
+- **修复时间**：2026-09-24
+- **修复提交**：见同批次 commit
+- **批次理由**：四条都属于「改完要重新构建 + 重出安装包」的类型，
+  按本文件开头的规则攒成一批一次性处理。
+- **修复范围**：13 个文件修改 + 2 个新组件 + 4 个新测试文件。
 
-- **影响面**：核心可用性，非数据安全。
-  - 不涉及数据丢失、不涉及越界，撤销功能本身不受影响（D 节已验通过）。
-  - 但「历史」是规格明确承诺的能力（MASTER_PLAN 第 78 行
-    「用户无需 API Key，可完成规则整理、**查看历史**、撤销」），
-    当前形态下这个承诺只兑现了一半。
+#### PR-001 问题列表「作用域」标签与正文无视觉间隔 —— 已修复
 
-- **根因定性**：**契约设计遗漏**，不是实现 bug。
-  规格 §8.4 只规定了撤销计划的逐项要求，**没有规定历史列表的明细粒度**，
-  因此这条既不算违反规格，也不在 T17 原有验收清单内。
-  （验收侧同步补条目，见 `docs/TEST_MATRIX.md` 与
-  `docs/CLEAN_MACHINE_ACCEPTANCE.md` 的人工检查项。）
+**修的过程中发现根因比原记录更深一层**：
 
-- **为什么暂缓**：修复要走完整契约再生成流程 ——
-  `RunReport` 加字段 → 后端查询改 → 重跑契约导出
-  （`contracts.schema.json` / `contracts.generated.ts` /
-  `validators.generated.ts` 三处）→ 前端渲染 → 补测试。
-  改动面横跨契约层，不宜在 T17 验收中途插入。
+原记录判断为「三个相邻 `<span>` 之间没有可见间距」，隐含前提是
+「有样式但间距不够」。实际扫描 `src/styles.css` 后发现：
 
-- **建议改法**（按代价从小到大，任选）：
-  1. **最小**：`RunReport` 增加 `itemPaths: Vec<{source, target, status}>`
-     （或复用 `RecoveryItem` 的精简形态），历史明细区渲染成表格；
-     列表行摘要追加「首个文件名 + 等 N 项」提升可辨识度。
-  2. **中等**：明细改为分页/懒加载 —— 历史可达 50 条、每条 8+ 项，
-     一次性带回全部路径会让 `list_runs` 变重。
-     规格已点明历史分页要「不将正文带回前端」（MASTER_PLAN:387），
-     新增字段应遵循同样的克制原则：**列表只带摘要，明细按 runId 单独拉**。
-  3. 若走方案 2，建议新增 `get_run_items(runId)` 命令而不是加宽 `RunReport`,
-     与既有 `get_run` 的分工保持一致。
+```
+.issue*        → 零条规则
+.modal*        → 零条规则
+.badge-*       → 零条规则
+.disabled-reasons → 零条规则
+```
 
-- **注意**：改 `RunReport` 会触碰 `deny_unknown_fields` 与已生成的前端校验器，
-  必须重跑 `scripts/generate-validators.mjs`，否则生产 CSP 下会再次白屏
-  （见 TEST_MATRIX §8.8）。
+也就是说这些类名**从来没有对应的 CSS**，不是「间距不够」而是
+**完全没有样式**。原记录的「加左间距 + 弱化颜色」方案若照做，
+只会补上一条孤立规则，其余类名继续无样式。
 
-### PR-004 点「确认执行」后界面无任何反馈，大批量文件时表现为「点了没反应」
+- **实际改法**：为 `IssueList` 的整组类名补齐样式——
+  `.issue-list`（列向 + gap）、`.issue`（`display:flex` + `align-items:baseline`
+  + `gap:10px` + `flex-wrap`）、`.issue-block` / `.issue-warning`（左侧色条）、
+  `.issue-badge` 与 `.badge-info` / `.badge-warning` / `.badge-block`、
+  `.issue-message`（`flex:1 1 auto; min-width:0`，长文案换行不撑破）、
+  `.issue-scope`（等宽字体、弱化色、自带底色与边框、`max-width:34ch` 截断）。
+- **顺带补齐**：`.modal-backdrop`（`position:fixed; inset:0; z-index:50`）
+  此前也不存在，`ConfirmDialog` 的遮罩依赖它。
+- **未改**：`issue.itemId`（UUID）的语义问题保留原样——原建议方案 2
+  （换成「第 3 项」）需要动后端 `Issue` 结构，收益低于代价；
+  本次用视觉手段把它降级为次要信息已足够解决「读起来像一句话」的问题。
 
-- **发现时间**：2026-09-25，T17 真机验收（用户报告「最下面那个确认没有反应」）
-- **严重度**：**高（P1）** —— 不是数据安全问题，但用户会误以为应用卡死，
-  进而**重复点击或强杀进程**，带来真实的操作风险
-- **触发条件**：文件数较多时必现（本次为 952 个文件）。
-  文件少时执行很快，await 一闪而过，所以此前 C/D 节都没暴露。
+#### PR-002 统计数字列未对齐 —— 已修复
 
-- **现象**：点确认对话框里的「确认执行」之后：
-  - 对话框**不关闭**，按钮**仍可点击**；
-  - 主界面**没有任何进度变化**；
-  - 用户看到的就是"点了没反应"。
+- `.info-grid` 的 `grid-template-columns` 由 `200px 1fr` 改为
+  `max-content minmax(0, 1fr)`：标签列按内容宽度收缩，
+  不再因为 `200px` 固定宽度导致短标签后的数值起点漂移。
+- `.info-grid dd` 增加 `text-align: right` 与 `min-width: 4ch`，
+  保留既有的 `font-variant-numeric: tabular-nums`，位数变化时列宽不跳。
 
-- **证据（代码）**：`src/features/preview/PreviewPage.tsx:211-248`
-  ```ts
-  const result = await call<RunReport>('execute_plan', {...})  // 952 个文件要跑很久
-  setReport(result)
-  setConfirming(false)   // ← 第 236 行：在 await **之后**才关对话框
-  ```
-  - 对话框的关闭被排在执行完成之后，执行期间它一直亮着。
-  - `src/features/preview/ConfirmDialog.tsx:73` —— 按钮 `disabled={disabled}`，
-    而 `disabled` 只由 `disabledReasons(...)` 决定，**不包含 `busy`**，
-    因此执行期间按钮保持可点（虽有 `executingRef` 兜底，但用户无从知晓）。
-  - `PreviewPage.tsx:452-457` 的进度文字渲染在对话框**遮罩之后**，被挡住看不见。
+#### PR-003 整理历史看不到逐文件明细 —— 已修复（采用原建议方案 3）
 
-- **对比**：`runValidate`（同文件 142-166 行）的做法是**先 `setBusy(true)`，
-  按钮立即变成「校验中」**——执行路径没有沿用这个即时反馈模式。
+- **契约层**：新增 `RunItem` / `RunItems` 两个类型
+  （`src-tauri/src/domain/types.rs`），均为 `deny_unknown_fields` + camelCase。
+  **没有加宽 `RunReport`** —— 遵循 MASTER_PLAN:387「不将正文带回前端」
+  的同一克制原则，历史列表保持轻量。
+- **命令层**：新增 `get_run_items(runId) -> IpcResult<Option<RunItems>>`
+  （`src-tauri/src/commands_execute.rs`），run 不存在时返回 `null`，
+  与既有 `get_run` 的分工一致。
+- **契约再生成**：`cargo run --bin export-contracts` →
+  `contracts.generated.ts` / `contracts.schema.json` →
+  `node scripts/generate-validators.mjs`（31 个定义 / 345.9 KB）。
+  **三步都跑了**，避免 TEST_MATRIX §8.8 的生产白屏复发。
+- **前端**：新增 `src/features/history/RunItemsTable.tsx`，
+  按 `runId` **按需**拉取；三态（加载 / 失败 / 空）互相可区分——
+  `null` 响应被当作**错误**而非空态（「记录不在了」≠「没有明细」）。
+- **列表可辨识度**：列表行追加 `planId` 前缀。
+  这是零额外成本的选择——`planId` 本来就随 `RunReport` 返回，
+  无需为每行再查一次 operations。
 
-- **影响面**：
-  - 无数据损坏风险：`executingRef` 同步守卫（219 行）+ 后端 `requestId` 幂等
-    （229 行）保证重复点击**不会产生第二个 run**，也不会重复移动文件。
-  - 但用户体验上等同于卡死，会诱发强杀进程或误判为缺陷。
+#### PR-004 点「确认执行」后无反馈 —— 已修复（P1）
 
-- **为什么暂缓**：修它要动执行流程的 UI 状态机，且需要真机复现验证
-  （952 个文件的场景不容易在小数据集上重现）。不适合在 T17 中途插入。
-  T17 报告里必须如实记录这个已知问题。
+- `PreviewPage.tsx`：`setConfirming(false)` 从 `await execute_plan` **之后**
+  提到**之前**，与「令牌已消费」解耦；执行期新增独立的
+  `.progress-panel`（`position:sticky; bottom:0; z-index:5`）渲染在对话框之外，
+  因此不再被遮罩挡住。
+- `ConfirmDialog.tsx`：新增 `busy` prop。刻意**不**把 `busy` 并进
+  `disabledReasons` —— 两者语义不同：后者说「你现在还不能确认」，
+  前者说「你已经确认过了，正在做」。按钮文案在执行期变为「正在整理…」并禁用。
+- **进度面板加了可访问名**（`aria-label="整理进度"`）。
+  修的过程中发现：同一个页面上有**三处** `role="status"`
+  （进度面板、禁用理由列表、停止请求提示），读屏用户听到的是三段无名公告，
+  分不清在说什么；测试也无法定位。加 `aria-label` 后它才是一个可点名的区域。
 
-- **建议改法**：
-  1. **打开对话框时就切换状态**：`execute()` 一进入就 `setConfirming(false)`
-     并显示进度区，关闭对话框的时机与「令牌已消费」解耦；
-  2. 给 `ConfirmDialog` 增加 `busy` prop，执行期间按钮文案变「执行中…」并禁用；
-  3. 进度文字提到遮罩**之上**（或用独立于对话框的进度面板），
-     确保 `progress.processed / total` 在执行期间可见；
-  4. 参考 `runValidate` 的既有模式，保持一致 —— 同一个页面不该有两套反馈习惯。
+#### 测试证据（本次新增 33 条）
 
-- **验收侧同步**：`docs/CLEAN_MACHINE_ACCEPTANCE.md` C 节补一条
-  「大批量（≥200 文件）目录执行时，点击后应立即看到进度」的检查项。
+| 文件 | 条数 | 覆盖 |
+| --- | --- | --- |
+| `tests/ui/confirm-feedback.test.tsx` | 6 | PR-004 |
+| `tests/ui/history-items.test.tsx` | 12 | PR-003（含 2 条契约形状） |
+| `tests/ui/presentation-invariants.test.ts` | 15 | PR-001/002/004 的 DOM 契约 |
+
+**PR-004 的用例必须用「永不 resolve 的 Promise」冻结执行**——
+文件少时 `await` 一闪而过，断言永远是绿的，这正是 C/D 节验收漏掉它的原因。
+这组用例同时把那个漏掉的观测条件固定下来：以后谁把关闭时机挪回 `await` 之后，
+测试就会红。
+
+**PR-001/002 的诚实边界**：jsdom 不实现 CSS 级联与布局，
+任何关于「间距/对齐好不好看」的断言在 jsdom 里都是**真空为真**。
+所以这些用例改为解析 `src/styles.css` 源码、断言**结构性不变量**
+（类名有规则、用了 flex+gap 而非相邻 margin、用了等宽字体、
+第一列不是 `auto`……）。**这证明的是「不会退回无样式状态」，
+不是「看起来好看」** —— 后者只能靠真机肉眼验收。
+
+#### 验收侧同步
+
+- `docs/CLEAN_MACHINE_ACCEPTANCE.md` C 节新增 PR-004 与 PR-003 的人工检查项。
+- `docs/TEST_MATRIX.md` 补记本次新增用例。
 
 ---
 
@@ -221,11 +181,6 @@
 
 ---
 
-## 已修复
-
-（暂无）
-
----
 
 ## 明确不改的
 
