@@ -1,0 +1,41 @@
+﻿
+################################################################
+# FilePilot T17 干净机器验收  phase=env  2026-09-25 00:08:44
+################################################################
+
+=== 1. 环境审计：这台机器是不是「干净」的 ===
+  [警告（不干净）] 开发工具 = node -> D:\node.exe
+  [警告（不干净）] 开发工具 = npm -> D:\npm.ps1
+  [警告（不干净）] 开发工具 = cargo -> C:\Users\cj169\.cargo\bin\cargo.exe
+  [警告（不干净）] 开发工具 = rustc -> C:\Users\cj169\.cargo\bin\rustc.exe
+  [警告（不干净）] 开发工具 = rustup -> C:\Users\cj169\.cargo\bin\rustup.exe
+  [警告（不干净）] 开发工具 = python -> C:\Users\cj169\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\python.exe
+  [警告（不干净）] 开发工具 = python3 -> C:\Users\cj169\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\python3.exe
+  [警告（不干净）] 开发工具 = git -> D:\Git\cmd\git.exe
+  [警告（不干净）] 开发工具 = code -> C:\Users\cj169\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd
+  [记录] 系统 = Microsoft Windows 11 家庭版 中文版 build 26200
+  [记录] 架构 = 64 位
+  [记录] 内存 = 15.8 GB
+  [记录] C: 可用 = 139.4 GB
+  [记录] WebView2 版本（注册表） = 153.0.4234.48
+  [记录] WebView2 安装目录 = 153.0.4234.48,SetupMetrics
+
+=== 本次判定汇总 ===
+  - [警告（不干净）] 开发工具：node -> D:\node.exe
+  - [警告（不干净）] 开发工具：npm -> D:\npm.ps1
+  - [警告（不干净）] 开发工具：cargo -> C:\Users\cj169\.cargo\bin\cargo.exe
+  - [警告（不干净）] 开发工具：rustc -> C:\Users\cj169\.cargo\bin\rustc.exe
+  - [警告（不干净）] 开发工具：rustup -> C:\Users\cj169\.cargo\bin\rustup.exe
+  - [警告（不干净）] 开发工具：python -> C:\Users\cj169\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\python.exe
+  - [警告（不干净）] 开发工具：python3 -> C:\Users\cj169\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\python3.exe
+  - [警告（不干净）] 开发工具：git -> D:\Git\cmd\git.exe
+  - [警告（不干净）] 开发工具：code -> C:\Users\cj169\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd
+  - [记录] 系统：Microsoft Windows 11 家庭版 中文版 build 26200
+  - [记录] 架构：64 位
+  - [记录] 内存：15.8 GB
+  - [记录] C: 可用：139.4 GB
+  - [记录] WebView2 版本（注册表）：153.0.4234.48
+  - [记录] WebView2 安装目录：153.0.4234.48,SetupMetrics
+
+报告已追加写入: .\tmp\fp-verify-staging\report.txt
+把 report.txt 和截图一起交回即可。

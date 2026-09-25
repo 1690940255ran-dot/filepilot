@@ -1,0 +1,32 @@
+# Rust 工具链锁定（T00）
+#
+# 选择日期：2026-09-16
+# 来源：https://static.rust-lang.org/dist/channel-rust-stable.toml（当日解析）
+# 实测版本：rustc 1.98.1 (48a229cea 2026-09-01) / cargo 1.98.1 (797e8a9bc 2026-08-05)
+#
+# 为什么 channel 写 "stable" 而不是写死 "1.98.1"：
+#
+#   写死具体版本号时，rustup 会把 "1.98.1" 当成一个**独立通道名**去
+#   static.rust-lang.org 同步并按需补齐组件。本机 `~/.rustup/toolchains/`
+#   下的 `1.98.1-x86_64-pc-windows-msvc` 是一个残缺目录（只有 cargo / clippy /
+#   rustfmt，**没有 rustc.exe、rustc_driver.dll、std.dll**），补齐组件时又会与
+#   目录里已存在的 clippy 冲突，于是每次调用 rustup shim 都走这条失败路径：
+#
+#       info: syncing channel updates for 1.98.1-x86_64-pc-windows-msvc
+#       info: downloading 3 components
+#       info: rolling back changes
+#       error: failed to install component: 'clippy-preview-x86_64-pc-windows-msvc',
+#              detected conflict: 'bin\cargo-clippy.exe'
+#
+#   结果是 `cargo` 完全无法启动——连 `cargo --version` 都失败。
+#
+#   写 "stable" 直接命中 rustup-init 装好的完整工具链，实际版本同样解析到 1.98.1。
+#
+# 已知代价：stable 是浮动通道，`rustup update` 后版本会变。
+# 复现性由 `Cargo.lock` 保证；若 CI 需要固定版本，用
+# `rustup toolchain install 1.98.1` 单独安装后再切回写死版本。
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc"]
+profile = "minimal"

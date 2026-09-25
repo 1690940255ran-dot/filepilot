@@ -1,0 +1,173 @@
+[package]
+name = "filepilot"
+version = "0.1.0"
+description = "本地文件整理智能体（工作名：文件领航）—— AI 只产生结构化建议，确定性规划器与安全执行器负责形成与执行操作"
+edition = "2021"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+authors = ["FilePilot contributors"]
+# 本包有第二个可执行目标 `export-contracts`（契约生成器）。
+# 缺了这一行，`tauri dev` 内部的 `cargo run` 会报
+# "could not determine which binary to run"，桌面窗口根本起不来。
+default-run = "filepilot"
+
+[lib]
+# 规格 10.2 要求集成测试可以 `use filepilot_lib::...`，因此库名固定。
+name = "filepilot_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+# 版本在 2026-09-16 由 crates.io API 实测锁定，见 docs/DECISIONS.md ADR-005。
+tauri = { version = "2.11.5", features = [] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+# JSON Schema 生成：Rust 类型是唯一真源（ADR-006）
+schemars = "1.2.2"
+# TypeScript 类型生成
+ts-rs = "12.0.1"
+# SHA-256（T02）：规格 6.1 要求完整哈希，采样哈希不能替代。
+# 与 tauri 依赖树里已有的 sha2 版本保持一致，避免同一 crate 编译两份。
+sha2 = "0.10.9"
+# 应用内标识（T02：rootId / scanId / fileId 生成）
+uuid = { version = "1.26.1", features = ["v4"] }
+# 一次性确认令牌需要**不可猜测**的随机数（T05）。
+# 用操作系统的 CSPRNG，而不是时间戳或计数器。
+# 版本与 uuid 的传递依赖保持一致，避免同一 crate 编译两份。
+getrandom = "0.3.4"
+# 原生目录选择框。规格 3.3 要求**由后端**取得根目录并生成 rootId，
+# 所以走 Rust 侧的 rfd，而不是 Tauri 的前端 dialog 插件。
+rfd = "0.17.2"
+# Windows 原生文件身份、卷信息、重解析点检测（T02 起）
+# Win32_System_Time（T04）：byMonth 规则要求「按本地时区生成 YYYY-MM」，
+# 用 SystemTimeToTzSpecificLocalTime 取得系统时区语义，
+# 而不是自己拿 Bias 做算术（那会漏掉夏令时规则）。见 ADR-011。
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Time",
+    # T15 性能基线要报「这项任务吃了多少内存」：`GetProcessMemoryInfo`
+    # 拿到的峰值工作集就是任务管理器那一列看的数字。
+    "Win32_System_ProcessStatus",
+    # T07 单实例锁用 CreateMutexW：命名互斥体是「第二个实例不启动第二个执行器」
+    # 最直接的实现，且不需要额外依赖 tauri-plugin-single-instance。
+    "Win32_System_Threading",
+    # T10 用 Job Object 给解析工作进程上资源上限（规格 6.2：256 MiB 内存、
+    # 禁止创建子进程、超时终止）。这是**操作系统级**的限制，
+    # 不是应用层的自觉——应用层的自觉在被开发的解析器面前不算限制。
+    "Win32_System_JobObjects",
+    # T10 把工作进程的标准输出接到匿名管道上。用管道而不是临时文件：
+    # 响应里带着最多 12,000 个字符的正文，临时文件会多出「谁负责删、
+    # 删失败怎么办」两件事，而这两件事在解析路径上没有意义。
+    "Win32_System_Pipes",
+    # ---- T11 系统 OCR（规格 6.2：PNG/JPEG 走「解码后系统 OCR」）----
+    # 用 Windows 自带的 WinRT OCR，**不调用任何云端视觉接口**。
+    # 这几项是 WinRT 那一侧的命名空间，与上面的 `Win32_*` 是并列的。
+    "Foundation",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Security_Cryptography",
+    "Storage_Streams",
+    # WinRT 公寓初始化（`RoInitialize`）。不初始化就调 WinRT 会直接失败。
+    "Win32_System_WinRT",
+    # ---- T12 模型 API Key 的存放（规格 3.3）----
+    # 「模型 API Key 放入 Windows 凭据存储，配置只存 credentialRef」。
+    # 密钥进 SQLite 或日志就等于进了一个会被备份、导出、截图、贴进 issue
+    # 的地方；凭据存储由系统按登录会话加密保管，是这条规格唯一合理的落点。
+    "Win32_Security_Credentials",
+    # T12 用 WinHTTP 发模型请求。不引入第三方 HTTP 客户端是有意的：
+    # 规格对代理、重定向、响应体上限各有一条硬要求，而对 WinHTTP 来说
+    # 每条都对应一个**显式设置**（NO_PROXY / REDIRECT_POLICY_NEVER /
+    # 自己数读到的字节数），不必去查某个 crate 的默认值恰好是什么。
+    "Win32_Networking_WinHttp",
+] }
+# SQLite（T04）。版本于 2026-09-17 由 index.crates.io 实测取得，见 ADR-011。
+# `bundled` 编译随包发布的 SQLite 源，不依赖系统 sqlite3.dll：
+# 应用需要确定的 SQLite 版本与确定的编译选项（外键、WAL），
+# 复用系统的 winsqlite3.dll 会让「迁移与事务语义」随 Windows 版本漂移。
+rusqlite = { version = "0.40.2", features = ["backup", "bundled"] }
+
+# T11 需要阻塞等待 WinRT 的异步操作（`OcrEngine::RecognizeAsync`）。
+# `windows 0.62` 配套的 `windows-future 0.3` **移除了** 0.2 时代的
+# `IAsyncOperation::get()`，取而代之的是 `Async` trait 上的 `join()`。
+# 这里显式依赖它，而不是自己写轮询 `Status()` 的循环：
+# 轮询要自己决定间隔与超时，而超时这件事**父进程的作业对象已经在管**
+# （15 秒没结束就被整个作业终止），在里层再叠一层只会让两处超时打架。
+windows-future = "0.3.2"
+
+# ---- T10 内容解析（规格 6.2）----
+# 版本于 2026-09-19 由 crates.io API 实测取得，见 ADR-021。
+# 这三个解析器**只被 extract-worker 进程链接**：规格 6.2 要求
+# 「不能在 UI 进程直接执行不可信解析」。把它们放在同一个 crate 的
+# 依赖里是构建期的简化，运行期的隔离由 Job Object 与「不传路径、只传句柄」
+# 这两条来保证。
+
+# DOCX 是一个 ZIP 容器。选 `zip` 而不是手写 ZIP 解析：
+# 压缩包里每一个字节都来自用户文件，自己解析等于把「解析器安全」这件事
+# 从头做一遍，而这件事已经有成熟的实现与更长的被攻击历史。
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# DOCX 正文是 XML。`quick-xml` 默认**不解析 DTD 与外部实体**，
+# 正是规格 6.2「禁止 XML 外部实体」需要的默认行为。
+quick-xml = "0.42.0"
+# PDF 文本提取。选 `lopdf` 而不是更高层的封装：规格 6.2 要限制
+# 「前 10 页」，需要自己控制按页遍历；封装层通常只给「整篇文本」。
+# 用默认特性：0.45 的可选特性都是图像/字体嵌入/异步这些我们不需要的东西，
+# 多开一个就多一份解析用户文件的代码被链接进来。
+lopdf = "0.45.0"
+# 图片解码（T11）。规格 6.2 要求 PNG/JPEG「解码后系统 OCR」，
+# 而像素上限（≤2000 万）只能在解码之后才谈得上——先解码再判超限
+# 等于钱已经花掉了。因此这里**只开 png 与 jpeg 两个解码器**：
+# 每多开一个格式，就多一份解析用户文件的代码被链接进来。
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+# 中文编码。规格 6.2 要求「UTF-8/UTF-16，有限支持 GB18030」。
+# 不引入字符集探测（chardetng 之类）：那会把「这段字节像什么编码」
+# 变成一次猜测，而规格要求乱码**明确失败**而不是猜一个可能对的编码。
+encoding_rs = "0.8.41"
+
+[dev-dependencies]
+# 规格 10.1：所有集成测试使用 TempDir 建立独立目录，绝不碰真实用户数据
+tempfile = "3.27.0"
+
+[features]
+default = []
+# 故障注入点开关（T08 启动恢复测试用）。
+# 关键：release 构建不接受外部 failpoint 设置，因此该特性只允许在测试构建中启用。
+failpoints = []
+
+# T08 启动恢复测试需要「进程在任意一步被强杀」。这件事**不能**和别的测试
+# 共处一个进程：`std::process::exit` 会把同进程里其他用例一起带走，
+# 于是「通过」与「被邻居杀掉」就分不清了。
+#
+# 用 `[[bin]]` 而不是 `[[test]]`：`[[test]]` 目标会被链接上 libtest，
+# 它自己的参数解析器会先吃掉父进程传来的 `--mode` / `--workspace`
+# （`--` 也救不了，libtest 在 `--` 之后仍然只看得到「0 个测试」并直接退出）。
+# 独立 bin 的 `main` 由我们自己写，参数表干净。
+#
+# `required-features` 保证它**只在测试构建里存在**：正常 `cargo build`
+# 不会产出这个可执行文件，release 里也就没有任何可被外部触发的注入入口。
+[[bin]]
+name = "recovery_crash_child"
+path = "src/bin/recovery_crash_child.rs"
+required-features = ["failpoints"]
+
+# T10 内容解析工作进程（规格 6.2）。
+#
+# 与 `recovery_crash_child` 不同，它**没有** `required-features`：
+# 解析隔离是**正式功能**，release 构建里也必须有它。
+# 界面进程从来不自己解析用户文件，只是把一支只读句柄交给这个子进程。
+[[bin]]
+name = "extract_worker"
+path = "src/bin/extract_worker.rs"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

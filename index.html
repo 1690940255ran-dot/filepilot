@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <!--
+      CSP 不在这里写。
+      Tauri 2 会用 `tauri.conf.json` 的 `app.security.csp` 注入策略，并在 dev 模式下
+      自动把 devUrl 与 HMR 所需来源加进去。若此处再写一份 meta CSP，浏览器会取
+      **两者中最严格的交集**：dev 模式下 Vite / React Refresh 需要内联脚本，
+      而 `script-src 'self'` 会拦掉它们——表现就是桌面窗口只有标题栏、内容区全黑。
+      策略统一由 tauri.conf.json 管理，避免两处漂移。
+    -->
+    <title>文件领航 FilePilot</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

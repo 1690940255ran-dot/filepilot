@@ -1,0 +1,82 @@
+﻿[
+    {
+        "item":  "开发工具",
+        "value":  "node -\u003e D:\\node.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "npm -\u003e D:\\npm.ps1",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "cargo -\u003e C:\\Users\\cj169\\.cargo\\bin\\cargo.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "rustc -\u003e C:\\Users\\cj169\\.cargo\\bin\\rustc.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "rustup -\u003e C:\\Users\\cj169\\.cargo\\bin\\rustup.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "python -\u003e C:\\Users\\cj169\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\python.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "python3 -\u003e C:\\Users\\cj169\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\python3.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "git -\u003e D:\\Git\\cmd\\git.exe",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "开发工具",
+        "value":  "code -\u003e C:\\Users\\cj169\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd",
+        "verdict":  "警告（不干净）"
+    },
+    {
+        "item":  "系统",
+        "value":  "Microsoft Windows 11 家庭版 中文版 build 26200",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "架构",
+        "value":  "64 位",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "内存",
+        "value":  "15.8 GB",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "C: 可用",
+        "value":  "139.4 GB",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "WebView2 版本（注册表）",
+        "value":  "153.0.4234.48",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "WebView2 安装目录",
+        "value":  "153.0.4234.48,SetupMetrics",
+        "verdict":  "记录"
+    },
+    {
+        "item":  "干净机器前提",
+        "value":  "检测到开发工具，已停止安装阶段",
+        "verdict":  "失败（环境不符合 T17）"
+    }
+]

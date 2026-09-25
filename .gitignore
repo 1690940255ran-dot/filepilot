@@ -1,0 +1,51 @@
+# ---- Node / 前端 ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# ---- Rust / Tauri ----
+src-tauri/target/
+src-tauri/gen/
+
+# ---- 临时工作区（脚本产物、探针输出、构建日志）----
+# 注意：这里**只忽略 `tmp/` 本身的关键产物**。仓库里不再保留任何
+# 验收交付物——需要交给验收人的安装包与脚本，由 `scripts/verify-kit/`
+# 现场重新生成（见 docs/CLEAN_MACHINE_ACCEPTANCE.md）。这样做的原因是：
+# 把 3MB 的 .exe 与几十个日志提交进仓库，会让 diff 永远读不出有用信息，
+# 而它们全部可以由源码 + 一条命令确定性重建。
+tmp/
+_tmp_*
+tmp-*.txt
+root_dirlist.txt
+tmp_dirlist.txt
+src-tauri/tmp/
+
+# ---- 测试产物 ----
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+tests/fixtures/generated/
+
+# ---- 编辑器 / 系统 ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 密钥与本地数据：绝不提交 ----
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+*.db
+*.db-wal
+*.db-shm
