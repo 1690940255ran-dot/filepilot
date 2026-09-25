@@ -8,10 +8,23 @@ name: CI
 # 所以这个 workflow 里**没有 mock 替身**：Rust 侧的集成测试真的建文件、
 # 真的开句柄、真的移文件。这也是它慢的原因，而那是值得的——
 # 规格另一句话说得很清楚：「UI mock 通过不能替代真机文件执行验收」。
+#
+# ## 触发方式：为什么 `main` 也在列表里
+#
+# 本仓库的默认分支就是 `main`（初始提交即在其上）。只写 `branches: [main]`
+# 的 `push` 触发器在有 PR 的仓库里意味着「功能分支不跑、合并时才跑」，
+# 而**这个项目要先在功能分支上观测一次真实的 runner 结果**
+# （docs/POST_RELEASE_TODO.md 的 PR-005：本地 687 条与 CI 是否同一集合，
+# 从未被观测过）。所以这里保留 `main` 并加上功能分支的通配，
+# 让「推一次就能拿到证据」成为默认行为。
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+      - "chore/**"
   pull_request:
   workflow_dispatch:
 
@@ -53,8 +66,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # `--reporter=verbose` 让每一条用例名都进日志。
+      # 默认 reporter 只给汇总行，而汇总行**证明不了集合相等**
+      # （PR-005：本地 687 条是不是 CI 跑的那 687 条，要看名字才能对账）。
       - name: 单元测试
-        run: pnpm test
+        run: pnpm test --reporter=verbose
 
       - name: 前端构建
         run: pnpm build
@@ -63,6 +79,10 @@ jobs:
       # 在 runner 上二元二进制还不存在（脚本会 skip），但**源码/文档/脚本**
       # 里写死的本机路径当场就会被拦下——那是最常发生的一种。
       # 这个 job 跑在 ubuntu 上，解释器名是 python3（Windows 上才是 python）。
+      #
+      # 注意它的判定基准是**当前用户名**：在 runner 上用户名不是 `cj169`，
+      # 所以它拦不住「为 cj169 写死的路径」——那条由本地跑这一脚拦住。
+      # 两边都要跑，各自负责自己能看见的那一半。
       - name: 本机路径与密钥形状扫描
         run: python3 scripts/scan-release-content.py
 
@@ -99,8 +119,81 @@ jobs:
       # `--test-threads=1` 稳定 29/29 通过）。
       # 判别实验与下一步见 `docs/TEST_MATRIX.md` 第 6.2 节。
       # 串行只是让 CI 的红绿有确定含义；那个根因仍然记在案上。
+      #
+      # 输出同时落盘，供下一步对账。
+      #
+      # **两个坑，都在本机实测过（2026-09-26），不是照抄的写法：**
+      #
+      # ① `$LASTEXITCODE` 必须手动传递。带管道时这条步骤的退出码取决于
+      #    管道**最后一段**；`Tee-Object` 成功了，整步就绿——即使
+      #    `cargo test` 挂了一片。这正是「沉默的红」，必须堵死。
+      #
+      # ② `Tee-Object -FilePath` 的父目录**必须已经存在**：目录不存在时
+      #    它**静默不写**，只报一条 `Cannot find path` 的非终止错误，
+      #    **退出码照样是命令自己的**。实测：`git rev-parse`（失败，128）
+      #    + `Tee-Object -FilePath` 指向不存在的目录 → 退出码 128、文件没写。
+      #    所以下面有「日志不存在就 exit 1」这条守卫——日志消失时
+      #    CI 必须变红，而不是安静地"看起来都正常"。
+      #
+      # 关于 `Tee-Object` 能不能捕获到输出，实测结论（免得下次误判）：
+      # 它写不写文件取决于管道里有没有对象流过。`cargo` 是**原生 exe**，
+      # 输出走 success stream，`Tee-Object` 正常写文件（已用
+      # `cargo --version 2>&1 | Tee-Object` 验证，日志 76 字节）。
+      # 注意 `2>&1` 只合并 stderr，**不会**把 `Write-Host` 拉进管道。
       - name: 单元与集成测试
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features failpoints --locked -- --test-threads=1
+        shell: pwsh
+        run: |
+          Set-Location -Path $env:GITHUB_WORKSPACE
+          $log = Join-Path $env:GITHUB_WORKSPACE 'rust-test.log'
+          cargo test --manifest-path src-tauri/Cargo.toml --features failpoints --locked -- --test-threads=1 2>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if (-not (Test-Path $log)) {
+            Write-Error "测试日志没有写出来：$log（下游的 PR-005 对账会拿不到证据）"
+            exit 1
+          }
+          Write-Host "测试日志已写出：$log（$((Get-Item $log).Length) 字节）"
+          exit $code
+
+      # PR-005 的那一脚：把每个目标的 `test result:` 汇总行摊平到日志里。
+      #
+      # 为什么要单独一步：`cargo test` 的完整输出有几千行，而 runner 日志
+      # 默认折叠。摊平之后，PR-005 的对账只需要读这几行——
+      # **本地 687 与 CI 的每一个目标逐行比对**，而不是拿一个总数猜。
+      #
+      # 这一步**不做断言**（CI 上的数字尚未首次观测，写死期望值等于
+      # 自证一个还没验证过的前提）；它只负责让证据可见。
+      #
+      # 另外，它**必须能找到日志**：上一步加了「日志不存在就 exit 1」，
+      # 所以走到这里日志一定在；万一不在（比如上一步被跳过），
+      # 下面会给出显式的红，而不是安静地"看起来都正常"。
+      - name: 摊平各测试目标的结果行（供与本地对账）
+        if: always()
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:GITHUB_WORKSPACE 'rust-test.log'
+          if (-not (Test-Path $log)) {
+            Write-Error "找不到 $log —— 上一轮测试可能根本没跑起来，没有可对账的证据"
+            exit 1
+          }
+
+          $lines = Select-String -Path $log -Pattern '^test result:'
+          Write-Host "各目标结果行共 $($lines.Count) 条："
+          $lines | ForEach-Object { Write-Host $_.Line }
+
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n### Rust 各测试目标结果（PR-005 对账用）`n"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          $lines | ForEach-Object { Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $_.Line }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "`n与本机逐目标比对，见 docs/TEST_MATRIX.md §4.1.1。"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-test-log
+          path: rust-test.log
+          retention-days: 14
+          if-no-files-found: warn
 
   # 契约检查需要 Rust 侧生成产物，所以它单独一个 job：
   # 放在 `web` 里会让那个 job 也要装 Rust 工具链。
@@ -181,9 +274,13 @@ jobs:
 
   # 桌面打包单独一个 job：它是最慢的一步，而失败原因通常与前面几步不同
   # （图标缺失、bundle 配置写错、NSIS 下载失败），分开跑更容易定位。
+  #
+  # 它在 PR 上默认**不跑**：打包要几分钟，而它验的是 bundle 配置，
+  # 与一次源码改动的关系很弱。手动 `workflow_dispatch` 或推 main 时照跑。
   bundle:
     name: 桌面打包（NSIS，用户级）
     runs-on: windows-latest
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -241,14 +338,21 @@ jobs:
 
           # 规格 T17：「生成安装包 SHA-256 和发布说明」。
           # 未签名安装包唯一的来源验证手段就是这个值，所以在 CI 上就打印出来。
+          #
+          # **它不会等于本机那一个**：构建可重现不在规格里，CI 与本地
+          # 各有各的路径前缀与时间戳。这里的值证明的是「这一次 CI 构建
+          # 产出了什么」，发布页上的哈希必须以**本地那次**为准。
           $hash = (Get-FileHash -Path $installers[0].FullName -Algorithm SHA256).Hash
-          Write-Host ("SHA256: " + $hash)
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ("安装包 " + $installers[0].Name + "`nSHA256 ``" + $hash + "``")
+          Write-Host ("SHA256（本次 CI 构建）: " + $hash)
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ("安装包 " + $installers[0].Name + "`nSHA256（CI 构建，非发布页用值） ``" + $hash + "``")
 
       # 刚构建完的**可执行文件**在这里被扫一次：`scripts/build-desktop.py`
       # 用 --remap-path-prefix 去掉了编译机路径，这条就是那个保护的回归测试。
       # 没有它时，重映射哪天被改坏了（或有人改回 `tauri build`），
       # 产物里会重新带上 runner 的用户名，而**没有任何东西会红**。
+      #
+      # 这一条在 runner 上比在本地更有意义：它检查的是「CI 这台编译机」
+      # 的用户名有没有漏进产物——那正是发布物会带走的东西。
       - name: 扫描产物内容（真实路径 / 密钥形状）
         run: python scripts/scan-release-content.py
 
