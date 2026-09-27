@@ -153,12 +153,27 @@ cargo test --release --manifest-path src-tauri/Cargo.toml \
 |---|---|---|
 | 运行平台 | Windows 11 | **Windows Server**（不是 Linux，两边都是 Windows） |
 | 命令 | `cargo test --features failpoints -- --test-threads=1` | 同上，多一个 `--locked` |
-| 可发现的用例数 | **687** | **应当也是 687**，但**从未在 runner 上跑过** |
+| 可发现的用例数 | **689** | **无法对账** —— 测试进程在 `extractors::image` 那组上崩溃，见下 |
 | `--test-threads=1` | 是 | 是（理由写在 workflow 注释里：绕开 6.2 的偶发失败） |
 
-> **CI 的绿至今是零次**。`rust` job 已经配好在 Windows runner 上跑同一套命令，
-> 但它**一次都没有真正跑过**——推送触发前，这条「两边一致」只是**配置一致**，
-> 不是**结果一致**。这两者的差别，正是 8.8 那个白屏缺陷教给我们的东西。
+> **2026-09-27 更新：CI 已真实运行，结论与当初的推断相反。**
+>
+> 此前这里写着「CI 的绿至今是零次」，并把它当作「配置一致 ≠ 结果一致」的示例。
+> 事实上问题比这更进一步：`push.branches` 里写的是 `main`，而仓库默认分支是
+> `master`，**这条 workflow 一次都不会被触发**（`/actions/workflows` 的
+> `total_count` 始终为 0）。修正后首次运行（run `36310782246`）：
+> **5 个 job，3 红 2 绿**，`rust` job 的失败是
+> `exit code: 0xc0000005, STATUS_ACCESS_VIOLATION` —— 崩溃点是
+> `extractors::image::tests::an_image_at_the_engine_dimension_limit_is_not_called_too_large`，
+> **连 `test result:` 汇总行都没产出**，因此**两边总数无法对账**。
+>
+> 这不是「本地 689 与 CI 不一致」，而是 **CI 上存在本地没有的平台专属崩溃**
+> （WinRT OCR / PowerShell 模块解析 / Python 默认编码三处环境差异各导致一条失败）。
+> 详见 `docs/POST_RELEASE_TODO.md` 的 CI-000 ~ CI-003。
+>
+> **这条记录的价值**：它推翻的不是一个数字，而是一个推理——
+> 「同一份代码 + 同一个 OS 家族 + 同样命令 ⇒ 同样结果」。
+> 本项目已第三次栽在它上面（前两次：§8.8 白屏、ADR-024 的干净重建 E0107）。
 
 **手动核对方式**（不要只信总数行）：
 

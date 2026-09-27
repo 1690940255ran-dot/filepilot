@@ -1,5 +1,31 @@
 # FilePilot 开发进度
 
+> 2026-09-27 **CI 首次真实运行完成（PR-005 结案），但结果是 5 个 job 里 3 个红**。
+> 触发过程本身先暴露了 CI-000：`push.branches` 写的是 `main`，而仓库默认分支是
+> `master`，**这条 workflow 此前一次都不会被触发**（`/actions/workflows` 的
+> `total_count` 一直是 0）。修正分支后首次运行（run 36310782246 / commit cf1eb18）：
+>
+> | job | 结果 |
+> |---|---|
+> | 前端 / 契约（ubuntu） | ✅ |
+> | 端到端（浏览器模式） | ✅ |
+> | **Rust（Windows，真实文件操作）** | ❌ `STATUS_ACCESS_VIOLATION`（CI-001） |
+> | **契约一致性** | ❌ `Get-FileHash` 找不到（CI-002） |
+> | **桌面打包（NSIS）** | ❌ `UnicodeEncodeError` cp1252（CI-003） |
+>
+> **PR-005 的答案**：`rust` job 根本没跑完 —— 测试二进制在 `extractors::image`
+> 那组用例上直接崩掉（0xc0000005），**连 `test result:` 汇总行都没产出**，
+> 所以「689 是否同一集合」**无法对账**。这不是「两边不一致」，
+> 是 **CI 上存在本地没有的平台专属崩溃**。
+>
+> 当初 PR-005 判「按 `cfg(windows)` 分布不会产生差异」的推断**被实测推翻**：
+> CI runner 与开发机在 **WinRT 组件 / PowerShell 模块解析 / Python 默认编码**
+> 三件事上不同，而这三件各对应一条失败。
+> 这是本项目**第三次**栽在「配置看起来一致 ⇒ 结果一致」上
+> （前两次：TEST_MATRIX 8.8 白屏、ADR-024 的干净重建 E0107）。
+>
+> 三条缺陷与修法方向见 `docs/POST_RELEASE_TODO.md` 的 CI-001 ~ CI-003。
+
 > 2026-09-27 干净重建的依赖编译缺陷已修复（ADR-024）：删除 `target/` 后重建时，
 > 传递依赖 `schemars 0.8.22` 因 `indexmap 1.9.3` 的 `has_std` 未被发出而报 E0107
 > （`indexmap` 没有 `default` 特性，`std` 缺失时 `build.rs` 走 autocfg 运行期探测，

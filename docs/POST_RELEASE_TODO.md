@@ -14,7 +14,19 @@
 
 ## 待修
 
-（暂无。PR-001 ~ PR-004 已于 2026-09-24 批量修复，见「已修复」。）
+PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
+
+**2026-09-27 CI 首次真实运行新增 3 条**（详见下文「已知问题」一节）：
+
+| 编号 | 严重度 | 一句话 |
+|---|---|---|
+| **CI-001** | P1 | `extractors::image` 的 OCR 用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩整个测试进程 |
+| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 → 契约 job 必红 |
+| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` → 打包 job 必红 |
+
+**这三条都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
+解析、Python 默认编码与 GitHub runner 不同。其中 CI-002 本可更早发现 ——
+`PROGRESS.md` 记过同一个报错，但被判为「本机命令环境问题」而绕过。
 
 ---
 
@@ -129,29 +141,130 @@
 
 ## 已知问题
 
-### PR-005 CI 与本地「全绿」的口径未被验证为同一集合（**待核实，非缺陷**）
+### PR-005 CI 与本地「全绿」的口径未被验证为同一集合 —— **已观测（2026-09-27），结论与当初的推断相反**
 
 - **发现时间**：2026-09-25，核对测试总数时顺带发现
-- **现象**：`docs/TEST_MATRIX.md` 4.1.1 记录过一桩「687 还是 558」的疑问。
-  核对结论是 **687 正确**（558 是只统计了日志前 7 行造成的计数错误），
-  但核对过程中暴露出一条**尚未消解的不确定性**：CI 的 `rust` job 跑在
-  `windows-latest` 上，命令与本地一致（`--features failpoints --locked --
-  --test-threads=1`），**理论上应当同样是 687**——
-  然而这个「应当」**从未被观测过**。
+- **当时的推断**：本地 Windows 11 + MSVC、CI Windows Server + MSVC，
+  按 `cfg(windows)` 分布的测试不会产生差异 → 判为「未验证，不是有问题」。
 
-- **为什么不写成缺陷**：目前没有任何证据表明两边不一致。
-  本地是 Windows 11 + MSVC、CI 是 Windows Server + MSVC，
-  按 `cfg(windows)` 分布的测试不会产生差异。**这是"未验证"，不是"有问题"。**
+- **2026-09-27 实测结果：推断错了，而且错得比预期更严重。**
 
-- **但它值得记一条**：本项目刚刚才因为「配置一致 ≠ 结果一致」吃过一次教训——
-  8.8 的白屏缺陷正是"开发机全绿、装完白屏"。同一类推理若再犯一次，
-  代价会是**CI 上某个平台专属用例长期红着或长期被跳过而没人知道**
-  （`--features failpoints` 的注释里已经写明：不带这个 feature 跑，
-  一批用例会被整段跳过而 CI 依然全绿）。
+  触发 CI 的过程本身先暴露了一个**前置缺陷**（见 CI-000）：这条 workflow
+  **一次都不会被触发** —— `push.branches` 写的是 `main`，而仓库默认分支是
+  `master`。所以此前不是「没观测」，是「根本不会跑」。
 
-- **消解方式**：推送触发一次 CI，把 `rust` job 的
-  `test result:` 行数出来，与本地 687 逐个目标对账。
-  **在一次真实运行之前，引用 CI「全绿」时都必须附带「未在 runner 上跑过」。**
+  修正触发分支后第一次真实运行（run `36310782246`，commit `cf1eb18`）：
+  **5 个 job，3 红 2 绿。**
+
+  | job | 结果 |
+  |---|---|
+  | 前端 / 契约（ubuntu-latest） | ✅ success |
+  | 端到端（浏览器模式，mock IPC） | ✅ success |
+  | **Rust（Windows，真实文件操作）** | ❌ `STATUS_ACCESS_VIOLATION`，见 CI-001 |
+  | **契约一致性** | ❌ `Get-FileHash` 找不到，见 CI-002 |
+  | **桌面打包（NSIS，用户级）** | ❌ `UnicodeEncodeError`，见 CI-003 |
+
+- **对「689 还是不是同一个集合」的回答**：`rust` job **根本没跑完** ——
+  测试二进制在 `extractors::image` 那组用例上直接崩掉（0xc0000005），
+  连 `test result:` 汇总行都没产出。所以**总数无法对账**，
+  而这不代表「两边不一致」，代表**CI 上存在本地没有的平台专属崩溃**。
+
+- **为什么当初的推断会错**：它默认「同一份代码 + 同一个 OS 家族 + 同样命令
+  ⇒ 同样结果」。但 CI runner 与开发机在**WinRT 组件、PowerShell 模块解析、
+  Python 默认编码**这三件事上并不相同 —— 而这三件正好各对应上面一条失败。
+  「配置看起来一致」再次不等于「结果一致」，**这是本项目第三次栽在同一个假设上**
+  （前两次：8.8 白屏、ADR-024 的干净重建 E0107）。
+
+- **状态**：不再标为「待核实」。拆成 CI-000 ~ CI-003 四条具体缺陷处理。
+
+---
+
+### CI-000（**已修复**）CI 的 push 触发器分支名写错，workflow 根本不会触发
+
+- **发现时间**：2026-09-27
+- **现象**：4 次推送到 `master` 后，`GET /actions/runs` 与 `/actions/workflows`
+  的 `total_count` 都是 **0** —— GitHub **连这条 workflow 都没注册**。
+- **根因**：`ci.yml` 的 `push.branches` 是 `main / feature/** / fix/** / chore/**`，
+  **不含 `master`**；而本仓库是用 API 以 `auto_init: false` 建的**空仓**，
+  默认分支由**第一次推送**决定，第一次推的就是 `master`。
+  文件里那句注释「本仓库的默认分支就是 `main`（初始提交即在其上）」是**基于印象的推断**。
+- **排查路径（可复用）**：
+  - `GET /repos/...` → `default_branch = master`
+  - `GET /contents/.github/workflows/ci.yml` → 200（文件确实在默认分支上）
+  - `GET /actions/permissions` → `enabled: true`（**Actions 本来就开着**）
+  - `POST /actions/workflows/ci.yml/dispatches` → **404**（确认未注册）
+  - 文件本身干净：无 BOM、无制表符、LF、5 个 job、无重复键
+- **修法**：`master` 与 `main` 并列；注释改为实测结论 + 核对命令
+  `curl -s https://api.github.com/repos/<owner>/<repo> | grep default_branch`。
+- **验证**：推送 `cf1eb18` 后立即 `workflows=1`（`state = active`）、`runs=1`。
+
+### CI-001｜P1｜`extractors::image` 的 OCR 用例在 CI runner 上把测试进程打崩
+
+- **发现时间**：2026-09-27，CI 首次真实运行
+- **现象**：`rust` job 失败，`exit code: 0xc0000005, STATUS_ACCESS_VIOLATION`。
+  崩溃前最后启动、且**从未打印 `ok`** 的用例是：
+
+  ```
+  test extractors::image::tests::an_image_at_the_engine_dimension_limit_is_not_called_too_large ...
+  ```
+
+  它上面一条 `an_empty_byte_slice_is_corrupt_not_a_panic ... ok` 正常通过，
+  说明**崩的是这一条**，而且是**进程级崩溃**（不是断言失败）——
+  连 `test result:` 汇总行都没产出，`--no-capture` 也没用上。
+- **影响面**：`rust` job 因此完全无法给出总数，PR-005 的「689 对账」无法进行。
+  这一组用例走的是 **WinRT 系统 OCR**（T11），
+  推测与 GitHub `windows-latest`（Windows Server）上 OCR 组件/语言包的行为差异有关。
+  **注意：这是 CI 专属崩溃，本地 Win11 上 689 条全过。**
+- **为什么是 P1**：它让整条 CI 的 Rust 门禁失效——正是 CI 存在的意义。
+  且这类崩溃**恰好落在 T17 要验的系统 OCR 路径上**，不能当作测试环境噪音忽略。
+- **待做**：在 runner 上定位是哪一步崩（构造该尺寸图片 → 调用 `OcrEngine`），
+  再决定是「CI 上跳过 OCR 用例并显式标注」还是修实现。**不要在没定位前就加 skip。**
+
+### CI-002｜P1｜`scripts/check-contracts.ps1` 依赖 `Get-FileHash`，在 CI 上必然失败
+
+- **发现时间**：2026-09-27，CI 首次真实运行
+- **现象**：
+
+  ```
+  > pnpm contracts:check
+  Get-FileHash : The term 'Get-FileHash' is not recognized as the name of a cmdlet...
+  At D:\a\filepilot\filepilot\scripts\check-contracts.ps1:29 char:17
+  ```
+
+- **根因**：脚本用 `powershell -NoProfile -ExecutionPolicy Bypass -File` 启动
+  **Windows PowerShell 5.1**，而 `Get-FileHash` 属于 `Microsoft.PowerShell.Utility`，
+  需要 `PSModulePath` 能解析到系统模块目录。从 pnpm/node 派生的进程环境里
+  **`PSModulePath` 没有正确继承**，于是 cmdlet 找不到。
+
+- **⚠️ 这一条本可以更早发现**：`docs/PROGRESS.md` 已经记过同一个报错，
+  但当时判为「**本机命令环境问题**，不能把失败入口写成通过」，
+  并用「临时给这条命令设 `PSModulePath`」绕过。
+  **它不是本机问题 —— CI 上一模一样地复现。**
+  把可复现的失败归因成「本机环境特殊」，等于把缺陷留到了 CI 上。
+
+- **修法方向**：脚本内自己做哈希（不依赖 `Get-FileHash`），
+  或在入口显式设置 `PSModulePath`；并让 `pnpm contracts:check` 这条**入口本身**
+  成为被验证的对象，而不是绕过它去跑底层脚本。
+
+### CI-003｜P2｜`scripts/build-desktop.py` 打印中文时因 cp1252 崩溃
+
+- **发现时间**：2026-09-27，CI 首次真实运行
+- **现象**：
+
+  ```
+  File "D:\a\filepilot\filepilot\scripts\build-desktop.py", line 99, in main
+      print("[release] 路径重映射：")
+  UnicodeEncodeError: 'charmap' codec can't encode characters in position 10-15
+  ```
+
+  runner 上的 Python 3.12 stdout 编码是 **cp1252**，打印中文直接抛异常。
+- **同类已知项**：`scripts/scan-release-content.py` 在本机也因默认编码
+  （中文系统是 GBK）失败过，当时的处置是**在命令行前设 `PYTHONIOENCODING=utf-8`**——
+  但 CI 的 workflow 里**没有设**，所以同一类问题换个脚本又出现一次。
+- **修法方向**：不要在每条命令外挂环境变量，而应让脚本自己健壮 ——
+  在脚本开头 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`；
+  workflow 里也用 `env: PYTHONIOENCODING: utf-8` 兜一层。
+  **逐个命令打补丁的方式已经被证明会漏。**
 
 ---
 
