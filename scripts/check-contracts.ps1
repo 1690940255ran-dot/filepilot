@@ -25,10 +25,39 @@ if (-not $cargo) {
 }
 
 function Get-FileHashOrNull([string]$path) {
-    if (Test-Path $path) {
-        return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $null
     }
-    return $null
+    # **不要用 `Get-FileHash`。**
+    #
+    # 它属于 `Microsoft.PowerShell.Utility` 模块。本脚本由
+    # `pnpm contracts:check` 以 `powershell -NoProfile -ExecutionPolicy Bypass -File`
+    # 启动，而从 node/pnpm 派生的进程环境里 `PSModulePath` 没有正确继承到
+    # 系统模块目录 —— 于是 cmdlet 自动加载失败：
+    #
+    #   Get-FileHash : The term 'Get-FileHash' is not recognized as the name of a
+    #   cmdlet, function, script file, or operable program.
+    #   At scripts/check-contracts.ps1:29 char:17
+    #
+    # 2026-09-27 实测：这个失败在 **CI 上必现**（也因此让整个契约 job 变红），
+    # 而它此前被误判为「本机命令环境问题」。直接调 .NET 就没有这个依赖：
+    # `System.Security.Cryptography` 属于基础框架，不经过模块自动加载。
+    #
+    # 返回值与 `Get-FileHash` 保持一致：大写十六进制、无分隔符。
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($path)
+        try {
+            $bytes = $sha.ComputeHash($stream)
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $sha.Dispose()
+    }
+    return ([System.BitConverter]::ToString($bytes)).Replace('-', '')
 }
 
 $beforeTs = Get-FileHashOrNull $tsPath

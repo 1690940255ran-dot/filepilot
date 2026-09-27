@@ -42,6 +42,14 @@ env:
   # 无用的增量编译数据在 CI 上是纯浪费：每次都是干净构建，
   # 而它会额外吃掉几 GB 磁盘。
   CARGO_INCREMENTAL: 0
+  # runner 上 Python 的 stdout 默认是 cp1252，而本仓库的脚本会打印中文
+  # （`print("[release] 路径重映射：")` 曾直接抛 UnicodeEncodeError 让打包 job 变红）。
+  #
+  # 真正的修法在脚本内部（各自 `sys.stdout.reconfigure(encoding="utf-8")`），
+  # 这里只是**兜底**：万一将来又加了一个忘了设编码的脚本，也不至于再红一次。
+  # 只靠环境变量是不够的 —— 本机当初就是靠在命令行前挂它绕过，
+  # 结果换一个脚本又中一次（见 POST_RELEASE_TODO.md 的 CI-003）。
+  PYTHONIOENCODING: utf-8
 
 jobs:
   # 前端与契约检查跑在 Linux 上——它们与平台无关，而 Linux runner 更快更便宜。

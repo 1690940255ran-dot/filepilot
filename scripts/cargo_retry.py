@@ -32,6 +32,15 @@ import subprocess
 import sys
 import time
 
+
+# 控制台编码：Windows 上 Python 的 stdout 默认跟随系统代码页
+# （CI runner 是 cp1252、中文系统是 GBK），而本仓库的脚本会打印中文，
+# 未设置时直接抛 UnicodeEncodeError，让整条命令失败。
+# 见 docs/POST_RELEASE_TODO.md 的 CI-003。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 MSVC = (
     r"C:\Program Files\Microsoft Visual Studio\2022\Community"
     r"\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64"

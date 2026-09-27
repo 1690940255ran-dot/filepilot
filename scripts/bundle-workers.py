@@ -47,7 +47,12 @@ from pathlib import Path
 # 输出重定向到文件时 Python 会整块缓冲，日志顺序就乱了：
 # 实测出现过「编译失败」打印在「编译 extract_worker…」**之前**，
 # 而构建日志的顺序正是用来判断「哪一步失败」的。
-sys.stdout.reconfigure(line_buffering=True)
+#
+# **必须同时指定 encoding**（同 scripts/build-desktop.py 的理由）：
+# Windows 上 stdout 默认跟随系统代码页（CI runner 是 cp1252、
+# 中文系统是 GBK），打印中文会抛 UnicodeEncodeError 让命令失败。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PROJECT = Path(__file__).resolve().parent.parent
 CARGO = PROJECT / "src-tauri" / "Cargo.toml"

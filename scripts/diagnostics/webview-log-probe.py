@@ -11,6 +11,17 @@ import subprocess
 import time
 from pathlib import Path
 
+import sys
+
+
+# 控制台编码：Windows 上 Python 的 stdout 默认跟随系统代码页
+# （CI runner 是 cp1252、中文系统是 GBK），而本脚本会打印中文，
+# 未设置时直接抛 UnicodeEncodeError，让整条命令失败。
+# 见 docs/POST_RELEASE_TODO.md 的 CI-003。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 相对本脚本定位仓库根（`scripts/diagnostics/` → 上两级）。
 # 安装目录走环境变量，不写死用户名——`%LOCALAPPDATA%` 在每台机器上都对。
 PROJECT = Path(__file__).resolve().parents[2]

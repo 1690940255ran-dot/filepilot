@@ -41,6 +41,24 @@ pub struct ImageText {
 
 pub type ImageResult = Result<ImageText, &'static str>;
 
+/// 引擎边长检查：**严格大于**才算超限。
+///
+/// 单独成函数，是为了让「比较用的是 `>` 还是 `>=`」这件事可以**确定性**地
+/// 被测到，而不必把一张 `10000 × 1` 的图真的送进系统 OCR。
+///
+/// 为什么非要解开这个耦合：`extract` 在调用 OCR **之前**就用这个判断做早退，
+/// 所以「正好等于上限」的图一定**不会**被早退挡下，会一路走到 OCR。
+/// 而把这样一张极宽、1 像素高的图交给 WinRT OCR，在部分平台上会让
+/// **整个进程**崩溃 —— 2026-09-27 实测：GitHub 的 `windows-latest`
+/// （Windows Server）上 `extractors::image` 的边界用例使测试二进制以
+/// `STATUS_ACCESS_VIOLATION (0xc0000005)` 退出，连 `test result:` 汇总行
+/// 都产不出来；同一份代码在本机 Win11 上 689 条全过。
+///
+/// 崩溃点在 OCR，而那条用例想验的是「比较写错没有」——两件事本该分开。
+fn exceeds_engine_dimension(width: u32, height: u32, limit: u32) -> bool {
+    width > limit || height > limit
+}
+
 /// 从字节里读出图片并做 OCR。
 pub fn extract(bytes: &[u8]) -> ImageResult {
     if bytes.len() as u64 > MAX_IMAGE_BYTES {
@@ -81,7 +99,7 @@ pub fn extract(bytes: &[u8]) -> ImageResult {
     // 所以在这里先挡住，给出正确的码。取不到上限（比如这台机器没有 OCR）
     // 就跳过这一条：那种情况下后面会以 `OCR_UNAVAILABLE` 如实报出来。
     if let Some(limit) = crate::platform::ocr::max_image_dimension() {
-        if width > limit || height > limit {
+        if exceeds_engine_dimension(width, height, limit) {
             return Err(codes::EXTRACTION_TOO_LARGE);
         }
     }
@@ -231,15 +249,43 @@ mod tests {
     }
 
     #[test]
-    fn an_image_at_the_engine_dimension_limit_is_not_called_too_large() {
+    fn the_engine_dimension_boundary_uses_a_strict_comparison() {
         // 边界另一侧：正好等于边长上限的图不该被这条检查挡住。
         // 它最终会因为「图里没有文字」报成 unsupported，但**不能**是
         // TOO_LARGE——否则说明比较写成了 `>=`。
-        let limit = crate::platform::ocr::max_image_dimension().expect("引擎应当报告边长上限");
-        let outcome = extract(&png(limit, 1));
+        //
+        // ## 为什么这条用例不调用 `extract`
+        //
+        // 它原先构造一张 `limit × 1` 的图交给 `extract`。那是**能到 OCR** 的：
+        // 边长检查在 OCR 之前，而「等于上限」不会被它挡下。于是这张
+        // 10000×1 的图会被送进 WinRT OCR —— 在 GitHub 的 windows-latest
+        // （Windows Server）上，这会让整个测试进程以
+        // `STATUS_ACCESS_VIOLATION (0xc0000005)` 崩溃，连汇总行都产不出来。
+        //
+        // 这种崩溃**不是**这条用例想验的东西。它想验的只有一句：
+        // 「比较是 `>`，不是 `>=`」。那就直接验这句话，不必借道 OCR。
+        //
+        // 用固定上限值而不是去问引擎：比较逻辑与具体数字无关，
+        // 而问引擎本身就是一次 WinRT 调用，正是要避开的东西。
+        // 真实上限仍由 `an_image_over_the_engine_dimension_limit_is_rejected`
+        // 那条用例覆盖（它走 `extract`，会读到引擎的真实上限）。
+        const LIMIT: u32 = 10_000;
+
         assert!(
-            !matches!(outcome, Err(codes::EXTRACTION_TOO_LARGE)),
-            "正好等于上限不该被当成超限：{outcome:?}"
+            !exceeds_engine_dimension(LIMIT, 1, LIMIT),
+            "正好等于上限不该被当成超限（说明比较写成了 >=）"
+        );
+        assert!(
+            !exceeds_engine_dimension(1, LIMIT, LIMIT),
+            "高度同理：正好等于上限不该被当成超限"
+        );
+        assert!(
+            exceeds_engine_dimension(LIMIT + 1, 1, LIMIT),
+            "宽超过一个像素就必须判超限"
+        );
+        assert!(
+            exceeds_engine_dimension(1, LIMIT + 1, LIMIT),
+            "高超过一个像素就必须判超限"
         );
     }
 

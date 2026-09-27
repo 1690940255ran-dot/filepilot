@@ -48,7 +48,14 @@ from pathlib import Path
 
 # 输出重定向到文件时 Python 会整块缓冲，日志顺序就乱了——
 # 而构建日志的顺序正是用来定位「哪一步失败」的。
-sys.stdout.reconfigure(line_buffering=True)
+#
+# **必须同时指定 encoding**：Windows 上 stdout 默认跟随系统代码页
+# （CI runner 是 cp1252、中文系统是 GBK），而本脚本会打印中文
+# （如 `print("[release] 路径重映射：")`），未指定时直接抛
+# `UnicodeEncodeError: 'charmap' codec can't encode characters...`，
+# 让整个打包 job 变红。见 docs/POST_RELEASE_TODO.md 的 CI-003。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 PROJECT = Path(__file__).resolve().parent.parent
 

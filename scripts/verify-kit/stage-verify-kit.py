@@ -10,6 +10,17 @@ import hashlib
 import shutil
 from pathlib import Path
 
+import sys
+
+
+# 控制台编码：Windows 上 Python 的 stdout 默认跟随系统代码页
+# （CI runner 是 cp1252、中文系统是 GBK），而本脚本会打印中文，
+# 未设置时直接抛 UnicodeEncodeError，让整条命令失败。
+# 见 docs/POST_RELEASE_TODO.md 的 CI-003。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 相对本脚本定位仓库根（`scripts/verify-kit/` → 上两级）。
 # `STAGE` 是**要交给虚拟机的暂存目录**，故意放在仓库外、且是纯 ASCII 路径。
 STAGE = Path(r"C:\fp-verify")

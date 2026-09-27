@@ -16,15 +16,17 @@
 
 PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 
-**2026-09-27 CI 首次真实运行新增 3 条**（详见下文「已知问题」一节）：
+**2026-09-27 CI 首次真实运行新增 4 条**（详见下文「已知问题」一节）：
 
-| 编号 | 严重度 | 一句话 |
-|---|---|---|
-| **CI-001** | P1 | `extractors::image` 的 OCR 用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩整个测试进程 |
-| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 → 契约 job 必红 |
-| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` → 打包 job 必红 |
+| 编号 | 严重度 | 一句话 | 状态 |
+|---|---|---|---|
+| **CI-000** | P1 | push 触发器分支名写错（`main` vs 实际默认分支 `master`），workflow 根本不触发 | ✅ 已修复并验证 |
+| **CI-001** | P1 | `extractors::image` 的边界用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩测试进程 | ✅ 用例已重构（不碰 OCR）；**平台崩溃另记为 CI-004** |
+| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 | ✅ 已改用 .NET（**本机无法复现，待 CI 验证**） |
+| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` | ✅ 已修复并**本机复现验证** |
+| **CI-004** | P2 | WinRT OCR 处理 `10000 × 1` 这类极端宽高比图片时进程崩溃（Windows Server） | 待查，**不要在没定位前加 skip** |
 
-**这三条都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
+**这四条都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
 解析、Python 默认编码与 GitHub runner 不同。其中 CI-002 本可更早发现 ——
 `PROGRESS.md` 记过同一个报错，但被判为「本机命令环境问题」而绕过。
 
@@ -265,6 +267,48 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
   在脚本开头 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`；
   workflow 里也用 `env: PYTHONIOENCODING: utf-8` 兜一层。
   **逐个命令打补丁的方式已经被证明会漏。**
+
+---
+
+### CI-004｜P2｜WinRT OCR 处理极端宽高比的图片时让进程崩溃（**待查，无定位不加 skip**）
+
+- **发现时间**：2026-09-27，从 CI-001 里分离出来
+- **现象**：把一张 `10000 × 1`（宽等于引擎边长上限、高为 1）的图送进
+  `crate::platform::ocr::recognize_bgra`，在 GitHub 的 `windows-latest`
+  （**Windows Server**）上使测试进程以 `STATUS_ACCESS_VIOLATION (0xc0000005)` 退出；
+  **本机 Win11 上同样的调用正常返回**（该图无文字，按 `UNSUPPORTED_FORMAT` 收场）。
+- **已知的边界**：
+  - 这不是「测试写得不对」，是一个真实的平台行为差异；
+  - 影响面**有限**：图片提取跑在独立的 `extract_worker` 子进程里，并且受
+    Job Object 约束（规格 6.2）。子进程崩溃会被父进程观测为一次提取失败，
+    **不会**带走 UI 进程。但用户会看到「这个文件读不出来」。
+  - 目前**无法定位**到底是 `max_image_dimension()`、解码，还是
+    `recognize_bgra` 里的哪一步崩 —— 手上没有 Windows Server 环境。
+- **复现配方（留给能上 Server 的人）**：把 CI-001 里那条原始调用单独拿出来
+  （`extract(&png(limit, 1))`，`limit` 取 `max_image_dimension()`），
+  在 windows-latest 上跑；再分别用 `limit × 1`、`limit × 2`、`limit/2 × 1`
+  做梯度，判断是「宽度到上限」还是「高度为 1」触发。
+- **处置口径**：**先不加 `#[ignore]`、不加平台 cfg 跳过**。
+  在没定位之前跳过，等于把一个问题变成一个「CI 全绿」的假象 ——
+  这正是 `--features failpoints` 注释里警告过的那种「一批用例被整段跳过
+  而 CI 依然全绿」。CI-001 的做法是**把用例改成不依赖那个行为**
+  （它本来要验的也不是 OCR），而不是把断言删掉。
+
+### 2026-09-27 修复与验证记录
+
+| 编号 | 改法 | 验证方式与结果 |
+|---|---|---|
+| **CI-000** | `push.branches` 加 `master`；修正注释里的错误前提 | 推送 `cf1eb18` 后 `workflows=1`（`state=active`）、`runs=1` —— **已在真实 runner 上观测到** |
+| **CI-001** | 抽出纯函数 `exceeds_engine_dimension(width, height, limit)`，`extract` 调用它；边界用例改为直接断言该函数（不再把 `limit × 1` 的图送进 OCR） | 本机 7 条图片用例全过；**待下一次 CI 验证** |
+| **CI-002** | `check-contracts.ps1` 不再用 `Get-FileHash`，改用 `System.Security.Cryptography.SHA256` | 对照测试证明**与 `Get-FileHash` 输出逐字符相同**；本机 3 种 `PSModulePath` 取值（缺失／只指向 pwsh7／只指向 5.1）**都复现不了失败**，故本机无法验证修复效果，**只能靠 CI 验证** |
+| **CI-003** | 6 个脚本内部设 `sys.stdout/stderr.reconfigure(encoding="utf-8")`；workflow 加 `PYTHONIOENCODING: utf-8` 兜底 | **本机复现并验证**：`PYTHONIOENCODING=cp1252` 下，无保护的 `print` 报 `UnicodeEncodeError: ... position 10-15`（与 CI 日志**逐字相同**）；加上保护后 exit 0，真实脚本 `scan-release-content.py` 也 exit 0 |
+
+> **CI-002 这条要如实说明**：我**没能**在本机复现 `Get-FileHash` 找不到的失败。
+> 一个容易想到的解释是「`PSModulePath` 没正确继承」，但实测把 `PSModulePath`
+> 删掉、或指向 pwsh7、或指向 5.1 系统模块，`Get-FileHash` **都能用** ——
+> 所以那个解释**没有依据**，不作为结论写在文档里。
+> 换成 .NET 之后不再依赖 cmdlet 自动加载，**无论真实触发条件是什么都绕开了**，
+> 但它是否真的解决问题，要以 CI 结果为准。
 
 ---
 
