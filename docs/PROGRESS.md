@@ -24,6 +24,16 @@ Rust 侧经 `scripts/msvc-env.sh` 加载工具链。
 | `pnpm build`（`vite build`） | 0 |
 | `pnpm test:prod-csp` | 0；**2 通过**（前台执行，3.5 秒） |
 | `pnpm test:e2e` | 0；**4 通过**（前台执行，9.6 秒） |
+| **全量清理后重建**：`cargo clean --profile dev` → 上表三条 Rust 命令 | 全部 0；**从零编译 316 个 crate**，**689 通过 / 0 失败 / 2 ignored**，无 E0107 |
+
+**最后一行是这条依赖缺陷的关键证据**：它只在**干净树**上暴露，而干净树正是 CI 的场景。
+上面「只清 indexmap」的复跑不够 —— 必须**整体清空**才能证明修复对 CI 有效。
+实测全量重建（`cargo clean --profile dev` 后）耗时约 22 分钟，四条命令全绿。
+
+> `cargo clean` 会连带删除 `src-tauri/target/release/` 下的**已发布安装包**。
+> 因为本项目的构建**不逐字节可复现**（TEST_MATRIX 8.7），删掉就再也拿不回同一份文件，
+> 而它的 SHA-256 已经写进 `RELEASE_CHECKLIST.md` / `RELEASE_NOTES`。
+> 所以只清 dev profile（`cargo clean --profile dev`），并在操作前把安装包备份到仓库外。
 
 > **复跑方式上的一个坑**：Playwright 用**后台执行 + 输出重定向**时会跑完用例但
 > **进程不退出**、汇总不落盘，看上去像卡住。改用前台
