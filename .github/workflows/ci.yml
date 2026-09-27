@@ -172,6 +172,38 @@ jobs:
           Write-Host "测试日志已写出：$log（$((Get-Item $log).Length) 字节）"
           exit $code
 
+      # 诊断 CI-004：崩溃点是「这条用例本身」还是「同进程内跑到这里时的累积状态」？
+      #
+      # 之所以要问这一句：崩的那条（`the_spaces_ocr_inserts_...`）与它上面
+      # **已经通过**的 `a_chinese_image_...` 代码路径几乎相同 —— 都用同一张夹具、
+      # 都会先问 `availability()`、在 OCR 不可用的机器上都该走「早退」分支。
+      # 两条都不该崩，却只有后一条崩，那更像**累积状态**（COM 公寓 /
+      # OCR 引擎对象生命周期之类），而不是某个输入本身有毒。
+      #
+      # 只在上一步失败时跑（平常零成本），且**不做断言**（continue-on-error）：
+      # 它只负责产出证据，不负责判定。判据是：
+      #   * 单独跑仍然崩 → 是「这个输入」触发的，可以按输入去复现
+      #   * 单独跑通过   → 是累积状态，那就该考虑把 OCR 相关用例
+      #                    隔离到独立测试进程（本项目对「一个崩溃带走邻居」
+      #                    已有先例：`recovery_crash_child` 就是为此拆的 bin）
+      - name: 诊断：单独跑可疑用例（仅在上一步失败时）
+        if: failure()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Set-Location -Path $env:GITHUB_WORKSPACE
+          Write-Host '=== A 单独跑崩溃的那一条 ==='
+          cargo test --manifest-path src-tauri/Cargo.toml --features failpoints --locked --test extract the_spaces_ocr -- --test-threads=1 --nocapture
+          Write-Host "A 退出码 = $LASTEXITCODE"
+          Write-Host ''
+          Write-Host '=== B 对照：单独跑它上面那条（已知能过）==='
+          cargo test --manifest-path src-tauri/Cargo.toml --features failpoints --locked --test extract a_chinese_image -- --test-threads=1 --nocapture
+          Write-Host "B 退出码 = $LASTEXITCODE"
+          Write-Host ''
+          Write-Host '=== C 只跑整个 extract 二进制里的 image 相关用例 ==='
+          cargo test --manifest-path src-tauri/Cargo.toml --features failpoints --locked --test extract image -- --test-threads=1
+          Write-Host "C 退出码 = $LASTEXITCODE"
+
       # PR-005 的那一脚：把每个目标的 `test result:` 汇总行摊平到日志里。
       #
       # 为什么要单独一步：`cargo test` 的完整输出有几千行，而 runner 日志
