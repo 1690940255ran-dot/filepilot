@@ -61,20 +61,44 @@ PROJECT = Path(__file__).resolve().parent.parent
 
 
 def remap_flags() -> list[str]:
-    """要映射的 (原前缀, 目标) 列表。"""
+    """要映射的 (原前缀, 目标) 列表。
+
+    ## 为什么**不能**用 `prefix.exists()` 过滤（2026-09-27 CI-007）
+
+    这里原本是「只映射真实存在的前缀」，本意是防 rustup 用系统工具链时那一层不存在。
+    但那是个**会静默失效**的防御：`--remap-path-prefix` 是**纯字符串前缀改写**，
+    它根本不要求被映射的路径存在；而反过来，路径**暂时**不存在时跳过映射，
+    就会让依赖带着原路径被编译。
+
+    这正是 CI 上发生的事 —— 该步骤在 CI 日志里只打印了两条映射：
+
+        [release] 路径重映射：
+          D:\\a\\filepilot\\filepilot=.
+          C:\\Users\\runneradmin\\.rustup\\toolchains=/rust      ← 少了 .cargo/registry
+
+    于是 `aes` / `brotli-decompressor` / `anyhow` 这些依赖的 panic 位置
+    把 `C:\\Users\\<runner>\\.cargo\\registry\\src\\…` 留在了两个可执行文件里，
+    内容扫描正确地拒绝了产物。本地 registry 一直是热的，所以**本机永远复现不出来**。
+
+    ## 顺带修正 CARGO_HOME
+
+    原来写死 `<home>/.cargo`，但 CI 的 workflow 显式设置了 `CARGO_HOME`，
+    两者未必是同一个位置。现在优先读环境变量，读不到才回落到 `<home>/.cargo`。
+    """
     home = Path.home()
-    pairs = [
-        (PROJECT, "."),
-        (home / ".cargo" / "registry", "/cargo"),
-        # 目录名是 `toolchains`（复数）。写成单数时 `exists()` 为假、
-        # 这条映射被静默跳过——构建照常成功，只是少了一层保护。
-        (home / ".rustup" / "toolchains", "/rust"),
-    ]
+    cargo_home = Path(os.environ.get("CARGO_HOME") or (home / ".cargo"))
+    rustup_home = Path(os.environ.get("RUSTUP_HOME") or (home / ".rustup"))
+
     flags: list[str] = []
-    for prefix, target in pairs:
-        # 只映射真实存在的前缀：rustup 用系统工具链时可能没有这一层
-        if prefix.exists():
-            flags.extend(["--remap-path-prefix", f"{prefix}={target}"])
+    for prefix, target in (
+        (PROJECT, "."),
+        (cargo_home / "registry", "/cargo"),
+        (rustup_home / "toolchains", "/rust"),
+    ):
+        # **不做 exists() 判断**：见上面的说明。
+        # 前缀不存在时这条规则只是匹配不到任何东西，是安全的空操作；
+        # 而跳过它会让产物泄漏编译机路径 —— 代价远大于收益。
+        flags.extend(["--remap-path-prefix", f"{prefix}={target}"])
     return flags
 
 

@@ -27,7 +27,7 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 | **CI-004** | P2 | WinRT OCR 处理 `10000 × 1` 这类极端宽高比图片时进程崩溃（Windows Server） | 待查，**不要在没定位前加 skip** |
 | **CI-005** | P2 | **CI 上验不到真实 OCR 识别结果**（runner 没有中文语言包） | 已如实记录，不当作已覆盖 |
 | **CI-006** | P1 | 契约文件被 `check-contracts.ps1` 报不一致 —— **实为 CRLF/LF 假警报** | ✅ 已加 `.gitattributes` 修复 |
-| **CI-007** | P1 | `--remap-path-prefix` 在 CI 上未盖住 `runneradmin` 路径，打包 job 的内容扫描正确拒绝产物 | 待查，**已加 `--verbose` 取证据** |
+| **CI-007** | P1 | `--remap-path-prefix` 在 CI 上未盖住 `runneradmin` 路径，打包 job 的内容扫描正确拒绝产物 | ✅ **根因已定位并修复**（`exists()` 静默跳过映射） |
 
 **这些都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
 解析、Python 默认编码、行尾设置与 GitHub runner 不同。
@@ -406,6 +406,39 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 - **影响面**：**不阻断功能，但阻断发布。** 规格 T16 明写发布内容
   「不包含真实路径样本」，所以在这一条变绿之前不能发布安装包。
   另外注意本地扫描是通过的（0 命中）—— 这条**只有 CI 能发现**。
+
+- **✅ 2026-09-27 根因已定位（证据决定性）。** 加上 `--verbose` 之后，CI 打出了
+  命中的**完整路径**，全都是同一个形状：
+
+  ```
+  C:\Users\<runner>\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\aes-0.9.3\src\…
+  C:\Users\<runner>\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\brotli-decompressor-5.0.3\src\…
+  ```
+
+  即**正好是映射到 `/cargo` 的那一条前缀**。而同一份 CI 日志里，
+  `build-desktop.py` 打印出来的映射只有**两条**：
+
+  ```
+  [release] 路径重映射：
+    D:\a\filepilot\filepilot=.
+    C:\Users\<runner>\.rustup\toolchains=/rust      ← 少了 .cargo/registry
+  ```
+
+  **根因**：`remap_flags()` 里有个 `if prefix.exists()` 的「防御」判断，
+  本意是防 rustup 用系统工具链时那一层不存在。但
+  **`--remap-path-prefix` 是纯字符串前缀改写，根本不要求路径存在**；
+  而反过来，路径**暂时**不存在时跳过映射，就让依赖带着原路径被编译了 ——
+  CI 上 `.cargo/registry` 在那一刻尚未创建（依赖是这次构建才下载/解压的），
+  于是这条映射被**静默跳过**。本地 registry 一直是热的，所以**本机永远复现不出来**。
+
+  > 讽刺的是 `remap_flags()` 自己的注释早就写过
+  > 「写成单数时 `exists()` 为假、这条映射被静默跳过」——
+  > 同一个坑换了个触发条件又中一次。**「静默跳过」这类防御要格外小心。**
+
+  **修法**：去掉 `exists()` 过滤（前缀不存在时规则匹配不到任何东西，是安全空操作），
+  并顺带改为优先读 `CARGO_HOME` / `RUSTUP_HOME` 环境变量 ——
+  workflow 里显式设了 `CARGO_HOME`，而原来写死 `<home>/.cargo` 未必是同一处。
+  验证：把 `CARGO_HOME` 指向不存在的目录，映射仍是 3 条（旧实现会掉到 2 条）。
 
 ---
 
