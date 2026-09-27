@@ -20,15 +20,17 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 
 | 编号 | 严重度 | 一句话 | 状态 |
 |---|---|---|---|
-| **CI-000** | P1 | push 触发器分支名写错（`main` vs 实际默认分支 `master`），workflow 根本不触发 | ✅ 已修复并验证 |
-| **CI-001** | P1 | `extractors::image` 的边界用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩测试进程 | ✅ 用例已重构（不碰 OCR）；**平台崩溃另记为 CI-004** |
-| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 | ✅ 已改用 .NET（**本机无法复现，待 CI 验证**） |
-| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` | ✅ 已修复并**本机复现验证** |
+| **CI-000** | P1 | push 触发器分支名写错（`main` vs 实际默认分支 `master`），workflow 根本不触发 | ✅ 已修复并在 CI 上验证 |
+| **CI-001** | P1 | `extractors::image` 的边界用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩测试进程 | ✅ 已修复并在 CI 上验证（lib 408 通过） |
+| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 | ✅ 已修复并在 CI 上验证（现在能算哈希） |
+| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` | ✅ 已修复并在 CI 上验证（中文正常打印） |
 | **CI-004** | P2 | WinRT OCR 处理 `10000 × 1` 这类极端宽高比图片时进程崩溃（Windows Server） | 待查，**不要在没定位前加 skip** |
+| **CI-005** | P2 | **CI 上验不到真实 OCR 识别结果**（runner 没有中文语言包） | 已如实记录，不当作已覆盖 |
+| **CI-006** | P1 | 契约文件被 `check-contracts.ps1` 报不一致 —— **实为 CRLF/LF 假警报** | ✅ 已加 `.gitattributes` 修复 |
+| **CI-007** | P1 | `--remap-path-prefix` 在 CI 上未盖住 `runneradmin` 路径，打包 job 的内容扫描正确拒绝产物 | 待查，**已加 `--verbose` 取证据** |
 
-**这四条都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
-解析、Python 默认编码与 GitHub runner 不同。其中 CI-002 本可更早发现 ——
-`PROGRESS.md` 记过同一个报错，但被判为「本机命令环境问题」而绕过。
+**这些都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
+解析、Python 默认编码、行尾设置与 GitHub runner 不同。
 
 ---
 
@@ -309,6 +311,92 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 > 所以那个解释**没有依据**，不作为结论写在文档里。
 > 换成 .NET 之后不再依赖 cmdlet 自动加载，**无论真实触发条件是什么都绕开了**，
 > 但它是否真的解决问题，要以 CI 结果为准。
+
+### 第一次修复后的 CI 复跑（run 36314541588 / commit 25ee5c3）
+
+**三个 job 仍然是红的，但失败内容全变了** —— 说明上面的修复都生效了，
+并且**暴露出了原本被它们掩盖的问题**：
+
+| job | 修复前 | 修复后 |
+|---|---|---|
+| Rust | `STATUS_ACCESS_VIOLATION`，lib 崩掉、无汇总行 | **lib 408 通过**；改为 2 条 `tests/extract.rs` 断言失败（见 CI-005） |
+| 契约一致性 | `Get-FileHash` 找不到 | 现在能算哈希，于是**第一次真正跑出比对结果**（见 CI-006） |
+| 桌面打包 | `UnicodeEncodeError` | 中文正常打印，脚本**真的跑到了内容扫描**并正确地拒绝了产物（见 CI-007） |
+
+> **这轮的价值在于**：前一轮的修复并不是「让 CI 变绿」，而是**让 CI 能说话**。
+> 三个 job 各从一个环境故障，变成了一个真实结论。
+
+### CI-005｜P2｜CI 上验不到真实的 OCR 识别结果（runner 没有中文语言包）
+
+- **现象**：`tests/extract.rs` 里 2 条用例在 CI 上失败：
+  - `a_chinese_image_comes_back_as_searchable_text`（`extract.rs:869`）
+    —— 断言 `status == Ok` 并要求正文含「会议」「2026」；
+  - `an_image_without_text_is_unsupported_and_never_invents_content`（`extract.rs:943`）
+    —— 断言错误码**恰好**是 `UNSUPPORTED_FORMAT`。
+- **根因**：前者要求「这台机器能读中文」，而 GitHub 的 `windows-latest`
+  没有中文 OCR 语言包；后者**与自己的注释自相矛盾** ——
+  它上一行注释写着「`OCR_UNAVAILABLE` 也会落到 unsupported（这台机器没装 OCR）」，
+  紧接着却把码写死成 `UNSUPPORTED_FORMAT`。装没装 OCR 会给两个不同的码，
+  这条断言在任何「没装 OCR」的机器上都必红。
+- **改法**：
+  - 后一条：码允许 `UNSUPPORTED_FORMAT | OCR_UNAVAILABLE` 两者之一，
+    **保留真正的不变量断言**（状态必须是 unsupported、正文必须为空 ——
+    「绝不编造正文」才是这条用例存在的理由）。
+  - 前一条：按 `platform::ocr::availability().is_usable()` 分两条路 ——
+    有语言包就验识别结果；没有就验「如实报告 `OCR_UNAVAILABLE` 且正文为空」
+    （这同样是规格要求：「语言包缺失明确提示」）。
+  - 顺带修 `the_spaces_ocr_inserts_between_chinese_characters_are_gone`：
+    它只断言「不含 `会 议`」这类模式，**在 OCR 不可用时是真空为真** ——
+    能过但什么都没验。现在先确认读到了非空文本再检查折叠。
+- **⚠️ 覆盖缺口（如实记录）**：改完之后，**CI 上验不到真正的识别结果**，
+  只验「缺失时如实报告」。规格 T11 那句「OCR 有文字时返回可搜索片段」
+  目前只在装了中文语言包的机器上被验证过。这一条**不当作已覆盖**。
+
+### CI-006｜P1｜契约「不一致」实为 CRLF/LF 假警报（**已修复**）
+
+- **现象**：`contracts:check` 报两个生成物都不一致：
+  ```
+  契约不一致：src/api/contracts.generated.ts
+    生成前: 2707CC163AC4B894…      ← 仓库检出的
+    生成后: 0E5F72481A883A71…      ← 生成器写出的
+  ```
+- **根因**：仓库**没有 `.gitattributes`**，而 Windows 上 `core.autocrlf` 默认 `true`。
+  CI 的 Windows runner 检出成 **CRLF**，而生成器写的是 **LF**；
+  而 `check-contracts.ps1` 比对的是**字节 SHA-256**。
+- **决定性验证**：把 LF 内容整体转成 CRLF 后算 SHA-256，
+  **正好等于上面那个「生成前」值，两个文件都对得上**
+  → 契约本来就是一致的，红的只是一个换行符差异。
+- **这个假警报被掩盖了两次**：本地先因为 `Get-FileHash` 拿不到而没跑到比对；
+  修好 Get-FileHash 之后才在 CI 上第一次真正跑出结果。
+- **修法**：新增 `.gitattributes`，只钉住会被逐字节比对的三个生成物
+  （`contracts.generated.ts` / `contracts.schema.json` / `validators.generated.ts`）
+  为 `eol=lf`。**不做全仓库 `* text=auto`** —— 那会改动大量文件的检出字节
+  （`.cmd` / `.bat` 反而需要 CRLF），风险远大于收益。
+
+### CI-007｜P1｜`--remap-path-prefix` 在 CI 上没盖住编译机用户路径（**待查**）
+
+- **现象**：CI 的打包 job 里，内容扫描正确地拒绝了产物：
+  ```
+  [HIT] extract_worker.exe -> 编译机用户路径（1 个用户：runneradmin）
+  [HIT] filepilot.exe     -> 编译机用户路径（1 个用户：runneradmin）
+  结论：**不通过**。发布物里出现了不该有的内容。
+  ```
+- **为什么这是**正确**的行为**：`scripts/build-desktop.py` 用 `--remap-path-prefix`
+  去掉编译机路径，而这一条扫描就是那个保护的回归测试。
+  在 runner 上红，说明**保护没有完全生效** —— 这正是它存在的意义。
+- **目前的困难：没有证据指向是哪一条映射没盖住。** 重映射一共三条：
+  项目目录 / `<home>/.cargo/registry` / `<home>/.rustup/toolchains`。
+  扫描只报「有个用户名」，无法判断是哪一条漏的。
+  **因此本轮不去猜、也不改重映射逻辑**，而是先拿到证据：
+  把 workflow 里这一步改成 `--verbose`（0 命中时不额外输出，常开无副作用），
+  下一次 CI 运行会逐条打出命中的原文。
+- **下一次要看的**：命中串的前缀是
+  `C:\Users\runneradmin\.cargo\registry\…`（说明 registry 那条没生效）、
+  `.cargo\git\…`（说明只映射 registry 不够）、
+  还是 `.rustup\…` / 别的目录（说明要新增一条映射）。
+- **影响面**：**不阻断功能，但阻断发布。** 规格 T16 明写发布内容
+  「不包含真实路径样本」，所以在这一条变绿之前不能发布安装包。
+  另外注意本地扫描是通过的（0 命中）—— 这条**只有 CI 能发现**。
 
 ---
 

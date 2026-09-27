@@ -856,6 +856,22 @@ fn a_chinese_image_comes_back_as_searchable_text() {
     //
     // 夹具是一张真渲染出来的中文图（见 `tmp/make_ocr_fixture.py`），
     // 不是画出来的方块——方块验不出 OCR 到底认不认字。
+    //
+    // ## 为什么要分两条路（2026-09-27 起）
+    //
+    // 「OCR 能不能读中文」取决于**这台机器装没装中文 OCR 语言包**，
+    // 不取决于代码。开发机装了，GitHub 的 windows-latest 没装 ——
+    // 于是这条用例此前在 CI 上必然红，而红的原因**不是代码回归**。
+    //
+    // 分两条路之后，两种机器上都验一件真事：
+    //   * 有语言包 → 验「读得出可检索的中文」（这条用例原本的意图）；
+    //   * 没有语言包 → 验「如实报告 OCR_UNAVAILABLE、且不编造正文」——
+    //     这同样是规格要求（「语言包缺失明确提示」）。
+    //
+    // **代价要说清**：CI 上因此验不到真正的识别结果。这个覆盖缺口
+    // 如实记在 `docs/POST_RELEASE_TODO.md` 的 CI-005，**不当作已覆盖**。
+    let usable = filepilot_lib::platform::ocr::availability().is_usable();
+
     let (_tmp, root) = make_root();
     let relative = put(
         &root,
@@ -864,8 +880,19 @@ fn a_chinese_image_comes_back_as_searchable_text() {
     );
 
     let results = extract_batch(&root, &[request("f1", relative)], &NoopExtractObserver);
-
     let extraction = &results[0];
+
+    if !usable {
+        println!("[跳过真实识别] 本机 OCR 不可用：只验「如实报告缺失」，不验识别结果");
+        assert_eq!(code_of(extraction), "OCR_UNAVAILABLE", "{:?}", extraction);
+        assert!(
+            extraction.text.is_empty(),
+            "OCR 不可用时必须给空正文，不能编：{:?}",
+            extraction.text
+        );
+        return;
+    }
+
     assert_eq!(extraction.status, ExtractionStatus::Ok, "{:?}", extraction);
     assert!(
         extraction.text.contains("会议"),
@@ -906,6 +933,17 @@ fn the_spaces_ocr_inserts_between_chinese_characters_are_gone() {
     let results = extract_batch(&root, &[request("f1", relative)], &NoopExtractObserver);
     let text = &results[0].text;
 
+    // 没有 OCR 时这条断言会**真空为真**（空文本里当然不含任何模式），
+    // 所以先确认这轮真的读到了字，否则等于没验。见 POST_RELEASE_TODO 的 CI-005。
+    if !filepilot_lib::platform::ocr::availability().is_usable() {
+        println!("[跳过空格折叠检查] 本机 OCR 不可用，读不到文本");
+        return;
+    }
+    assert!(
+        !text.trim().is_empty(),
+        "OCR 可用却读不出任何文本，这条检查会变成真空为真：{text:?}"
+    );
+
     for adjacent in ["会 议", "议 纪", "纪 要"] {
         assert!(
             !text.contains(adjacent),
@@ -940,7 +978,18 @@ fn an_image_without_text_is_unsupported_and_never_invents_content() {
         "没有文字就必须给空正文，不能编：{:?}",
         extraction.text
     );
-    assert_eq!(code_of(extraction), "UNSUPPORTED_FORMAT");
+    // **两个码都允许**，与上面那句注释保持一致。
+    //
+    // 这里此前只接受 `UNSUPPORTED_FORMAT`，与注释直接矛盾：装了 OCR 但图上没字
+    // 才是 UNSUPPORTED_FORMAT，没装 OCR 则是 OCR_UNAVAILABLE。
+    // 2026-09-27 在 CI 上暴露：runner 没有中文 OCR 语言包，
+    // 这条断言让整个 `tests/extract.rs` 变红，而它想守的不变量其实是
+    // 上面那一句 —— **绝不编造正文**。
+    let code = code_of(extraction);
+    assert!(
+        code == "UNSUPPORTED_FORMAT" || code == "OCR_UNAVAILABLE",
+        "空白图只能给这两个码之一（前者=有 OCR 但没字，后者=本机没 OCR），实得 {code}"
+    );
 }
 
 #[test]

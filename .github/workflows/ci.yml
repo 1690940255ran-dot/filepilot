@@ -370,8 +370,16 @@ jobs:
       #
       # 这一条在 runner 上比在本地更有意义：它检查的是「CI 这台编译机」
       # 的用户名有没有漏进产物——那正是发布物会带走的东西。
+      #
+      # **必须带 `--verbose`**：2026-09-27 这条在 CI 上真的红了，报告是
+      #   [HIT] extract_worker.exe -> 编译机用户路径（1 个用户：runneradmin）
+      #   [HIT] filepilot.exe     -> 编译机用户路径（1 个用户：runneradmin）
+      # 但**没说是哪个前缀漏的** —— `--remap-path-prefix` 一共映射了三条
+      # （项目目录 / .cargo/registry / .rustup/toolchains），只报「有个用户名」
+      # 无法判断是哪一条没盖住。带 `--verbose` 才会逐条打出命中的原文，
+      # 否则每次都得靠猜。0 命中时它不额外输出，所以常开无副作用。
       - name: 扫描产物内容（真实路径 / 密钥形状）
-        run: python scripts/scan-release-content.py
+        run: python scripts/scan-release-content.py --verbose
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,34 @@
+# 行尾约定
+#
+# ## 为什么必须显式写这个文件
+#
+# 仓库原本**没有** `.gitattributes`，而 Windows 上 `core.autocrlf` 默认是 `true`。
+# 于是同一份文件在不同机器上检出成不同的字节：
+# 开发机（或 Windows CI runner）检出成 CRLF，而**生成器写出来的是 LF**。
+#
+# 这件事在 2026-09-27 CI 首次真实运行时咬了一口：
+# `scripts/check-contracts.ps1` 比对的是**字节 SHA-256**
+# （「重新生成后与仓库内文件是否一致」），于是它在一个**正确**的仓库上报了不一致：
+#
+#   契约不一致：src/api/contracts.generated.ts
+#     生成前: 2707CC163AC4B894…   ← 检出后的 CRLF 版本
+#     生成后: 0E5F72481A883A71…   ← 生成器写出的 LF 版本
+#
+# 实测确认：把 LF 内容整体转成 CRLF 之后，SHA-256 正好等于上面那个「生成前」值，
+# **两个文件都对得上** —— 也就是说契约本来是一致的，红的只是一个换行符差异。
+#
+# 这个假警报此前被掩盖了两次：本地先是因为 `Get-FileHash` 拿不到而没跑到比对，
+# 修好之后才在 CI 上第一次真正跑出结果。
+#
+# ## 为什么只钉这几个文件，而不是全仓库 `* text=auto`
+#
+# 全仓库归一化会改动大量文件的检出字节（Windows 上的 `.cmd` / `.bat` 反而需要 CRLF），
+# 收益远小于风险。这里只钉住**会被逐字节比对**的生成物 —— 它们必须与生成器
+# 写出的字节完全一致，否则那条检查就永远是红的。
+
+# 契约管道的三个产物：真源是 Rust 类型（见 docs/DECISIONS.md ADR-006），
+# 由 `pnpm contracts:generate` 重新生成，改动它们会让 contracts:check 失败。
+src/api/contracts.generated.ts  text eol=lf
+src/api/contracts.schema.json   text eol=lf
+# 契约的运行时校验器（构建期预编译，见 TEST_MATRIX 8.8）
+src/api/validators.generated.ts text eol=lf
