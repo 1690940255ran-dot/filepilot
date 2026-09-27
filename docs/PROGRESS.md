@@ -1,5 +1,30 @@
 # FilePilot 开发进度
 
+> 2026-09-26 界面与功能完善：已完成桌面工作台样式、按修改月份入口、预览搜索/筛选/批量取消、整理理由展示和虚拟列表边界修复。前端 224 通过；Rust 常规 689 通过，默认跳过的性能测试另行补跑 2 通过；E2E 4 通过，生产 CSP 2 通过，截图检查 2 通过。契约、严格检查、生产构建与桌面打包均 exit 0。新包 3,049,424 字节，SHA-256 `2a3fa3c90cece6527b8514abd490a1cab14cb0938d51fc06cb6be96556cd681c`。详见 `docs/UI_IMPROVEMENTS_2026-09-26.md`，新包不能沿用旧包的 T17 证据。
+
+> 2026-09-26 代码审查后修复：CR-001 至 CR-006 已在源码中处理并增加回归测试；详见 `docs/CODE_REVIEW_2026-09-26.md` 的修复跟踪。前端 220 条单测、4 条 E2E、2 条生产 CSP、Rust 全套测试与严格代码检查已复跑通过。新安装包和 T17 正式干净 Win11 x64 验收仍需分别确认，因此不能把版本标为“全部完成”。
+
+### 2026-09-26 审查修复复跑记录
+
+本轮改动：预览确认与勾选保存、历史进入时刷新及游标分页、未决恢复全库查询、重复点击 E2E；测试改动在 `tests/ui/preview.test.tsx`、`tests/ui/history-items.test.tsx`、`tests/e2e/cancel.spec.ts` 和 `src-tauri/src/storage/runs.rs`。
+
+| 命令 / 环境 | 退出码与结果 |
+|---|---|
+| `pnpm.cmd install --frozen-lockfile` | 0；恢复本机缺失的 `node_modules`，锁文件未变 |
+| `pnpm.cmd typecheck`、`pnpm.cmd lint` | 均 0 |
+| `pnpm.cmd test` | 0；17 文件 / 220 通过 |
+| `pnpm.cmd build` | 0；仍有 586.95 kB 单 chunk 提示（性能待量测） |
+| `pnpm.cmd test:prod-csp` | 0；2 通过 |
+| `pnpm.cmd test:e2e` | 0；4 通过 |
+| `cargo test --features failpoints --locked -- --test-threads=1` | 0；所有单元与集成测试通过；通过 `scripts/msvc-env.sh` 加载工具链，设置 `CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_BUILD_JOBS=2` |
+| `cargo fmt --check`、`cargo clippy --all-targets --features failpoints --locked -- -D warnings` | 均 0；同上工具链环境 |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-contracts.ps1` | 0；重新生成的 TS 类型和 JSON Schema 哈希均与仓库一致；运行时设 `CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_BUILD_JOBS=2` |
+| `pnpm.cmd validators:check` | 0；31 个定义一致 |
+| `pnpm.cmd desktop:build` | 0；重新产出 3,046,429 字节 NSIS 安装包（含解析工作进程），SHA-256 `375088d7b539e88f424fd7e65dc5ca32c34129c4b2b15d4c8d4da8f9efe7777c` |
+| `python scripts/scan-release-content.py` | 设置 `PYTHONIOENCODING=utf-8` 后 exit 0；157 文件扫描，0 类命中；NSIS 压缩负载不在脚本覆盖范围 |
+
+`pnpm.cmd contracts:check` 入口在本机失败：它启动的子 PowerShell 找不到系统自带 `Get-FileHash`（exit 1）；直接运行上表的契约检查脚本成功。此为本机命令环境问题，不能把失败入口写成通过。内容扫描首次也因本机 Python 默认 GBK 无法输出警告符号而 exit 1；设置 UTF-8 后复跑通过。**新包尚未安装到合格的干净 Win11 x64 机器进行 T17 验收**；2026-09-25 Win10 报告和旧哈希只属于旧包。
+
 - 规格版本：MASTER_PLAN 1.0（`docs/MASTER_PLAN.md`）
 - 当前阶段：**P8 开源与可安装交付**（MASTER_PLAN §9.10）
 - 当前任务：**T16 已完成；T17 未完成 —— 缺一台合格的干净机器。**
