@@ -1,5 +1,39 @@
 # FilePilot 开发进度
 
+> 2026-09-27 干净重建的依赖编译缺陷已修复（ADR-024）：删除 `target/` 后重建时，
+> 传递依赖 `schemars 0.8.22` 因 `indexmap 1.9.3` 的 `has_std` 未被发出而报 E0107
+> （`indexmap` 没有 `default` 特性，`std` 缺失时 `build.rs` 走 autocfg 运行期探测，
+> 该探测在本机失败）。修法是在 `[dependencies]` 与 `[build-dependencies]`
+> **两处**显式声明 `indexmap` 的 `std` 特性 —— resolver v2 下 host 与 target
+> 的特性分开解析，缺一处仍会失败。`Cargo.lock` 仅增 1 行，无版本漂移。
+
+### 2026-09-27 门禁复跑记录（本机实测）
+
+本轮只改依赖声明与文档，未改业务代码。命令与 `docs/TEST_MATRIX.md` 一致，
+Rust 侧经 `scripts/msvc-env.sh` 加载工具链。
+
+| 命令 | 退出码与结果 |
+|---|---|
+| `cargo test --features failpoints --locked -- --test-threads=1` | 0；**689 通过 / 0 失败 / 2 ignored**（19 个 `test result` 行） |
+| `cargo fmt --check` | 0 |
+| `cargo clippy --all-targets --features failpoints --locked -- -D warnings` | 0 |
+| `pnpm typecheck`（`tsc --noEmit`） | 0 |
+| `pnpm lint`（`eslint .`） | 0 |
+| `pnpm test`（`vitest run`） | 0；17 文件 / **224 通过** |
+| `node scripts/generate-validators.mjs --check` | 0；31 个定义一致 |
+| `pnpm build`（`vite build`） | 0 |
+| `pnpm test:prod-csp` | 0；**2 通过**（前台执行，3.5 秒） |
+| `pnpm test:e2e` | 0；**4 通过**（前台执行，9.6 秒） |
+
+> **复跑方式上的一个坑**：Playwright 用**后台执行 + 输出重定向**时会跑完用例但
+> **进程不退出**、汇总不落盘，看上去像卡住。改用前台
+> `playwright test --reporter=list 2>&1 | tail -30` 即恢复正常。
+> 判断用例是否通过看 `ok N` 行，不要看进程是否退出。
+
+> **仍未完成**：新安装包（3,049,424 字节）尚未在合格的干净 Win11 x64 上做 T17
+> 正式验收；CI 仍未在真实 runner 上被观测过（PR-005）。本轮修掉的这条依赖缺陷
+> 恰恰说明「CI 的绿」不能靠推理 —— 它在干净环境上**必现**。
+
 > 2026-09-26 界面与功能完善：已完成桌面工作台样式、按修改月份入口、预览搜索/筛选/批量取消、整理理由展示和虚拟列表边界修复。前端 224 通过；Rust 常规 689 通过，默认跳过的性能测试另行补跑 2 通过；E2E 4 通过，生产 CSP 2 通过，截图检查 2 通过。契约、严格检查、生产构建与桌面打包均 exit 0。新包 3,049,424 字节，SHA-256 `2a3fa3c90cece6527b8514abd490a1cab14cb0938d51fc06cb6be96556cd681c`。详见 `docs/UI_IMPROVEMENTS_2026-09-26.md`，新包不能沿用旧包的 T17 证据。
 
 > 2026-09-26 代码审查后修复：CR-001 至 CR-006 已在源码中处理并增加回归测试；详见 `docs/CODE_REVIEW_2026-09-26.md` 的修复跟踪。前端 220 条单测、4 条 E2E、2 条生产 CSP、Rust 全套测试与严格代码检查已复跑通过。新安装包和 T17 正式干净 Win11 x64 验收仍需分别确认，因此不能把版本标为“全部完成”。

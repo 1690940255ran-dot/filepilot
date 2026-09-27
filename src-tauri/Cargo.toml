@@ -19,6 +19,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
+# 与下面 [dependencies] 里那条 indexmap 同一个理由，但**这是另一半**。
+#
+# edition 2021 默认用 resolver v2，**host（构建依赖）与 target 的特性分开解析**。
+# 只写 [dependencies] 那一处，能修好 target 侧的 schemars，
+# 而 `tauri-build` 在 host 侧传递依赖的 schemars 仍然拿不到 `indexmap/std`
+# → 仍然走 autocfg 探测 → 仍然报 E0107。
+#
+# 本机实测：只加 [dependencies] 时，`cargo tree -i indexmap@1.9.3` 明明显示
+# `indexmap feature "std"` 已启用，构建却依旧失败 —— 因为那是 host 侧的另一套解析。
+indexmap = { version = "1.9.3", default-features = false, features = ["std"] }
 
 [dependencies]
 # 版本在 2026-09-16 由 crates.io API 实测锁定，见 docs/DECISIONS.md ADR-005。
@@ -27,6 +37,37 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 # JSON Schema 生成：Rust 类型是唯一真源（ADR-006）
 schemars = "1.2.2"
+# **不是**本项目的直接依赖，显式列出来只为**钉住 indexmap 的 `std` 特性**。
+#
+# 背景：`tauri-build` / `tauri-utils` 传递依赖 `schemars 0.8.22`，它开了
+# `preserve_order`，于是 `Map<K, V>` 被定义成 `indexmap::IndexMap<K, V>`
+# ——只给两个泛型参数，依赖 `S` 有默认值。
+#
+# 而 `indexmap 1.9.3` 的 `[features]` 里**没有 `default`**，`std` 必须显式启用。
+# 一旦没有人显式启用它，`build.rs` 就会走这一支：
+#
+#     match env::var_os("CARGO_FEATURE_STD") {
+#         Some(_) => autocfg::emit("has_std"),
+#         None => autocfg::new().emit_sysroot_crate("std"),   // ← 运行期探测
+#     }
+#
+# 探测失败时 `has_std` 不会被发出，`IndexMap` 就落到 `#[cfg(not(has_std))]`
+# 那份**没有默认泛型**的定义上，编译期报 E0107：
+#
+#     struct takes 3 generic arguments but 2 generic arguments were supplied
+#
+# 本机实测过这个失败（干净重建时必现，`cargo clean -p indexmap` 后仍复现）：
+# `autocfg could not probe for `std``，构建脚本 output 里只有
+# `cargo:rustc-check-cfg=cfg(has_std)` 而**没有** `has_std`。
+# 同一个探针命令手工执行却成功，说明这是环境相关的脆弱点，不是上游 bug。
+#
+# 显式声明 `std` 之后 `CARGO_FEATURE_STD` 一定存在，**整条探测被跳过**，
+# 行为从「取决于构建机环境」变成确定性。这与 `zip` / `image` 那几处的克制
+# 原则不冲突：这里一行代码都用不到，只借用特性统一（feature unification）。
+#
+# 上游若有一天修掉这个探测，或 tauri 不再传递依赖 schemars 0.8，
+# 这一行就可以删掉。
+indexmap = { version = "1.9.3", default-features = false, features = ["std"] }
 # TypeScript 类型生成
 ts-rs = "12.0.1"
 # SHA-256（T02）：规格 6.1 要求完整哈希，采样哈希不能替代。

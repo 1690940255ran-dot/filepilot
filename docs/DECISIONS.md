@@ -974,3 +974,119 @@ loopback」这条检查来说，**解析器的宽容就是检查的漏洞**。
 - **设置页不提供「显示密钥」的开关**，这是有意的：能显示就意味着能读回，
   而规格 3.3 明确排除了那个能力。界面拿到的 `ProviderSummary` 里
   只有一个 `hasCredential: bool`，也没有地方可以装密钥。
+
+## ADR-024 显式钉住传递依赖 `indexmap` 的 `std` 特性，绕开不可靠的 autocfg 探测
+
+- **状态**：已接受（2026-09-27）
+
+### 问题：干净重建必现的依赖编译失败
+
+在**删除 `target/` 后重建**时，`cargo test --features failpoints --locked` 必现失败；
+`cargo clean -p indexmap` 后复跑仍然失败（**确定性，不是缓存问题**）：
+
+```
+error[E0107]: struct takes 3 generic arguments but 2 generic arguments were supplied
+  --> schemars-0.8.22\src\lib.rs:12  pub type Map<K, V> = indexmap::IndexMap<K, V>;
+
+note: struct defined here, with 3 generic parameters: `K`, `V`, `S`
+  --> indexmap-1.9.3\src\map.rs:76  pub struct IndexMap<K, V, S> {
+```
+
+报错发生在**依赖编译阶段**，项目代码一行都还没开始编 —— 所以它与本项目代码无关。
+
+### 根因链（每一步都有实测证据）
+
+`tauri-build` / `tauri-utils` 传递依赖 `schemars 0.8.22`，它启用了 `preserve_order`，
+于是 `Map<K, V>` 被定义成 `indexmap::IndexMap<K, V>` —— **只给两个泛型参数**，
+依赖第三个参数 `S` 有默认值。
+
+而 `indexmap 1.9.3` 的 `[features]` 里**没有 `default`**，`std` 只能显式启用：
+
+```toml
+[features]
+serde-1 = ["serde"]
+std = []          # ← 没有 default，没人显式启用时 CARGO_FEATURE_STD 就是缺失的
+```
+
+于是它的 `build.rs` 走运行期探测分支：
+
+```rust
+match env::var_os("CARGO_FEATURE_STD") {
+    Some(_) => autocfg::emit("has_std"),
+    None => autocfg::new().emit_sysroot_crate("std"),   // ← 探测
+}
+```
+
+探测失败时 `has_std` 不会被发出，`IndexMap` 就落到
+`#[cfg(not(has_std))]` 那份**没有默认泛型**的定义上，于是 E0107。
+
+实测到的构建脚本输出（`target/debug/build/indexmap-*/`）：
+
+```
+output : cargo:rustc-check-cfg=cfg(has_std)
+         cargo:rerun-if-changed=build.rs
+stderr : warning: autocfg could not probe for `std`
+```
+
+注意 `output` 里**只有 `check-cfg`，没有 `has_std`** —— 这正是它失败的直接证据。
+
+`autocfg 1.5.1` 的 `with_dir()` 只在**连 `#![no_std]` 探针都失败**时才打这条警告，
+说明探针根本没编过。但**同一条探针命令手工执行却成功**：
+
+```bash
+printf '' | rustc --crate-name probe --crate-type=lib --out-dir . --emit=llvm-ir \
+  [--target x86_64-pc-windows-msvc] -          # 两种写法都产出 .ll，exit 0
+```
+
+工具链与文档一致（rustc/cargo 1.98.1），环境里没有 `RUSTFLAGS` / `CARGO_*`。
+**结论：这是依赖 + 构建环境相关的脆弱点，不是上游 bug，也无法靠改本项目代码修好。**
+
+### 为什么以前没暴露
+
+`target/` 是热的时，indexmap 构建脚本的输出（含 `cargo:rustc-cfg=has_std`）被缓存，
+构建脚本不重跑，于是问题被掩盖。**只有干净重建才暴露 —— 而那正是 CI 的场景。**
+这与 TEST_MATRIX 8.8「开发机全绿、装完白屏」以及 PR-005「CI 的绿从未被观测过」
+是同一族问题：**配置一致 ≠ 结果一致**。
+
+### 决策：两处都显式声明 `indexmap` 的 `std`
+
+```toml
+[dependencies]
+indexmap = { version = "1.9.3", default-features = false, features = ["std"] }
+
+[build-dependencies]
+indexmap = { version = "1.9.3", default-features = false, features = ["std"] }
+```
+
+**两处缺一不可**，这是本项目最容易踩错的一点：
+
+edition 2021 默认使用 **resolver v2**，**host（构建依赖）与 target 的特性分开解析**。
+只写 `[dependencies]` 时，`cargo tree -i indexmap@1.9.3` 会显示
+`indexmap feature "std"` 已启用，**但构建依旧失败** —— 失败的是 host 侧
+（`tauri-build` → `schemars`）那一套解析，它拿不到那个 `std`。
+
+本文件不直接 `use` indexmap：这两行**只借用特性统一（feature unification）**，
+一行运行期代码都不会用到。
+
+### 后果
+
+- 行为从「取决于构建机环境」变成**确定性**：`CARGO_FEATURE_STD` 一定存在，
+  构建脚本走 `Some(_)` 分支直接 `emit("has_std")`，**整条探测被跳过**。
+- `Cargo.lock` 只增加 1 行（`"indexmap 1.9.3"` 进 `filepilot` 的依赖列表），
+  **无任何版本漂移**。
+- 代价：多两行看似"用不到的依赖"。若上游修掉这个探测，或 tauri 不再传递依赖
+  schemars 0.8，这两行即可删除。
+
+### 怎么复验这条决策仍然生效
+
+```bash
+cargo clean -p indexmap          # 强制重跑构建脚本，否则看不出问题
+cargo test --features failpoints --locked --no-run
+# 然后确认构建脚本输出了 has_std，且没有 autocfg 警告：
+#   target/debug/build/indexmap-*/output  → cargo:rustc-cfg=has_std
+#   target/debug/build/indexmap-*/stderr  → 空
+```
+
+改完实测：构建脚本 output 为 `cargo:rustc-cfg=has_std`、stderr 为空，
+原先那条警告所在的构建单元已被替换。`cargo test` **689 通过 / 0 失败 / 2 ignored**，
+`fmt --check` 与 `clippy -D warnings` 均 exit 0。
