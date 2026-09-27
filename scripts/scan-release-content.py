@@ -116,10 +116,39 @@ def check_binary(path: Path, hits: Counter[str]) -> None:
     text = read_text(path)
     if text is None:
         return
-    names = {match.group(1) for match in USER_PATH.finditer(text)}
+
+    names: set[str] = set()
+    contexts: set[str] = set()
+    for match in USER_PATH.finditer(text):
+        names.add(match.group(1))
+        # **只报用户名是不够的。**
+        #
+        # `scripts/build-desktop.py` 用 `--remap-path-prefix` 映射了三条前缀
+        # （项目目录 / `<home>/.cargo/registry` / `<home>/.rustup/toolchains`）。
+        # 命中时只知道「有个用户名漏了」，**无法判断是三条里的哪一条没生效**，
+        # 于是定位只能靠猜（POST_RELEASE_TODO 的 CI-007 就卡在这里）。
+        #
+        # 所以这里连**用户名之后那一段**一起收下来：
+        #   `C:\Users\<runner>\.cargo\registry\…` → registry 那条没盖住
+        #   `C:\Users\<runner>\.cargo\git\…`      → 映射范围不够
+        #   `C:\Users\<runner>\.rustup\…`         → toolchains 那条没盖住
+        tail = text[match.start(): match.start() + 140]
+        cut = len(tail)
+        for index, char in enumerate(tail):
+            # 控制字符或替换字符 = 撞到二进制边界了，就此截断
+            if ord(char) < 0x20 or char == "\ufffd":
+                cut = index
+                break
+        contexts.add(tail[:cut].strip())
+
     if names:
         sample = ", ".join(sorted(names)[:3])
         hits[f"{path.name} -> 编译机用户路径（{len(names)} 个用户：{sample}）"] += 1
+        # `+= 0`：让明细成为计数为 0 的条目 —— 只在 --verbose 下打印，
+        # 不抬高命中数（与 check_text 同一手法）。
+        for context in sorted(contexts)[:8]:
+            hits[f"{path.name} -> 命中路径: {context}"] += 0
+
     for label, pattern in SECRET_PATTERNS.items():
         if pattern.search(text):
             hits[f"{path.name} -> {label}"] += 1
@@ -152,7 +181,11 @@ def main() -> int:
         check_binary(path, hits)
 
     print(f"当前用户名（判定基准）：{CURRENT_USER}")
-    print(f"扫描 {checked} 个文件，命中 {len(hits)} 类\n")
+    # 只数**真实命中**（计数 > 0）。明细条目是 `+= 0` 加上来的，
+    # 把它们也算进「命中 N 类」会让这个数字虚高 —— 实测过一次：
+    # 实际 3 个来源（1 文档 + 2 二进制），却报成「命中 4 类」。
+    real = sum(1 for count in hits.values() if count > 0)
+    print(f"扫描 {checked} 个文件，命中 {real} 类\n")
 
     if not hits:
         print(
@@ -163,6 +196,10 @@ def main() -> int:
         return 0
 
     for entry, count in sorted(hits.items()):
+        # 计数为 0 的是明细条目，只在 --verbose 下打印 ——
+        # 此前 `--verbose` 只是少打一句提示，等于名不副实。
+        if count == 0 and not args.verbose:
+            continue
         print(f"[HIT ] {entry}" + (f"（{count} 处）" if count > 1 else ""))
     if not args.verbose:
         print("\n（同一条会合并计数；要看逐条明细加 --verbose）")

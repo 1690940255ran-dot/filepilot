@@ -272,29 +272,34 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 
 ---
 
-### CI-004｜P2｜WinRT OCR 处理极端宽高比的图片时让进程崩溃（**待查，无定位不加 skip**）
+### CI-004｜P2｜WinRT OCR 在 runner 上让测试进程崩溃（**已缩小范围，仍待定位**）
 
 - **发现时间**：2026-09-27，从 CI-001 里分离出来
-- **现象**：把一张 `10000 × 1`（宽等于引擎边长上限、高为 1）的图送进
-  `crate::platform::ocr::recognize_bgra`，在 GitHub 的 `windows-latest`
-  （**Windows Server**）上使测试进程以 `STATUS_ACCESS_VIOLATION (0xc0000005)` 退出；
-  **本机 Win11 上同样的调用正常返回**（该图无文字，按 `UNSUPPORTED_FORMAT` 收场）。
-- **已知的边界**：
-  - 这不是「测试写得不对」，是一个真实的平台行为差异；
-  - 影响面**有限**：图片提取跑在独立的 `extract_worker` 子进程里，并且受
-    Job Object 约束（规格 6.2）。子进程崩溃会被父进程观测为一次提取失败，
-    **不会**带走 UI 进程。但用户会看到「这个文件读不出来」。
-  - 目前**无法定位**到底是 `max_image_dimension()`、解码，还是
-    `recognize_bgra` 里的哪一步崩 —— 手上没有 Windows Server 环境。
-- **复现配方（留给能上 Server 的人）**：把 CI-001 里那条原始调用单独拿出来
-  （`extract(&png(limit, 1))`，`limit` 取 `max_image_dimension()`），
-  在 windows-latest 上跑；再分别用 `limit × 1`、`limit × 2`、`limit/2 × 1`
-  做梯度，判断是「宽度到上限」还是「高度为 1」触发。
-- **处置口径**：**先不加 `#[ignore]`、不加平台 cfg 跳过**。
-  在没定位之前跳过，等于把一个问题变成一个「CI 全绿」的假象 ——
-  这正是 `--features failpoints` 注释里警告过的那种「一批用例被整段跳过
-  而 CI 依然全绿」。CI-001 的做法是**把用例改成不依赖那个行为**
-  （它本来要验的也不是 OCR），而不是把断言删掉。
+- **现象**：测试进程以 `STATUS_ACCESS_VIOLATION (0xc0000005)` 退出。
+- **2026-09-27 第二次观测（run 36316850987）：崩溃点会「漂移」**
+
+  | 轮次 | 崩溃所在二进制 | 崩溃前最后启动的用例 |
+  |---|---|---|
+  | 第一次 | `filepilot_lib`（单测） | `extractors::image::tests::an_image_at_the_engine_dimension_limit_is_not_called_too_large` |
+  | 第二次 | `extract`（集成测试） | `the_spaces_ocr_inserts_between_chinese_characters_are_gone` |
+
+  两轮里**同一个进程内其他用例都正常通过**。第二次的日志还显示
+  `an_image_over_the_engine_dimension_limit_reports_too_large_not_corrupt ... ok`
+  —— 也就是说 **`max_image_dimension()` 并不崩**，此前把它列为嫌疑是错的。
+
+- **当前判断**：崩溃与「某个具体输入」无关，更像是**同一进程内多次触碰 WinRT/OCR
+  之后的累积状态问题**（COM 公寓、OCR 引擎对象生命周期之类）。
+  这也解释了为什么它会随测试顺序/二进制变化而漂移。
+- **影响面（不变）**：图片提取跑在独立的 `extract_worker` 子进程里并受 Job Object
+  约束，崩溃会被父进程观测为一次提取失败，不会带走 UI。但用户会看到
+  「这个文件读不出来」。
+- **仍未定位**：手上没有 Windows Server 环境，无法在崩溃点取栈。
+- **处置口径（不变）**：**不加 `#[ignore]`、不加平台 cfg 跳过**。
+  在没定位之前跳过，等于把一个问题变成「CI 全绿」的假象 ——
+  正是 `--features failpoints` 注释里警告过的那种情形。
+- **下一步（留给能上 Server 的人）**：在 runner 上按 `--no-capture` 跑
+  `cargo test --test extract the_spaces_ocr` 单独复现；若单跑不复现，
+  说明确实是累积状态，那就该考虑**把 OCR 相关用例隔离到独立测试进程**。
 
 ### 2026-09-27 修复与验证记录
 
@@ -391,9 +396,13 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
   把 workflow 里这一步改成 `--verbose`（0 命中时不额外输出，常开无副作用），
   下一次 CI 运行会逐条打出命中的原文。
 - **下一次要看的**：命中串的前缀是
-  `C:\Users\runneradmin\.cargo\registry\…`（说明 registry 那条没生效）、
+  `C:\Users\<runner>\.cargo\registry\…`（说明 registry 那条没生效）、
   `.cargo\git\…`（说明只映射 registry 不够）、
   还是 `.rustup\…` / 别的目录（说明要新增一条映射）。
+  > 这里刻意用 `<runner>` 占位而不是写真实用户名：本文件**本身就在扫描范围内**，
+  > 第一版把真名原样写进来，扫描器立刻把这份文档也判成了泄漏源
+  > （`[HIT] docs\POST_RELEASE_TODO.md -> 本机用户目录路径`）。
+  > **记录泄漏的文档自己会变成泄漏** —— 写这类内容一律用占位符。
 - **影响面**：**不阻断功能，但阻断发布。** 规格 T16 明写发布内容
   「不包含真实路径样本」，所以在这一条变绿之前不能发布安装包。
   另外注意本地扫描是通过的（0 命中）—— 这条**只有 CI 能发现**。
