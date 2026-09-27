@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { call, IpcError } from './api/client'
 import type {
   AppSettings,
@@ -33,6 +33,10 @@ const BASE_PAGES: ReadonlyArray<{ id: Page; label: string }> = [
 
 export function App(): JSX.Element {
   const [page, setPage] = useState<Page>('home')
+  const mainRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [page])
   const [settingsState, setSettingsState] = useState<SettingsState>({ status: 'loading' })
   // 递增该值即重新拉取设置。用计数器而不是把 loading 写进 effect 主体，
   // 是为了避免「在 effect 里同步 setState」造成的级联渲染。
@@ -215,15 +219,17 @@ export function App(): JSX.Element {
 
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-mark" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="m9 14 2 2 4-4"/></svg>
+          </span>
           <div>
             <h1 className="brand-name">{t.app.name}</h1>
-            <p className="brand-tagline">{t.app.tagline}</p>
+            <p className="brand-tagline">{t.app.nameEn}</p>
           </div>
         </div>
 
         <nav className="app-nav" aria-label={t.nav.ariaLabel}>
-          {pages.map((entry) => (
+          {pages.map((entry, index) => (
             <button
               key={entry.id}
               type="button"
@@ -231,25 +237,28 @@ export function App(): JSX.Element {
               aria-current={entry.id === page ? 'page' : undefined}
               onClick={() => setPage(entry.id)}
             >
+              <span className="nav-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
               {entry.label}
             </button>
           ))}
         </nav>
+        <div className="sidebar-note"><strong>{t.app.safety}</strong><p>{t.app.safetyHint}</p></div>
       </header>
 
-      <main className="app-main" id="main-content">
+      <main className="app-main" id="main-content" ref={mainRef}>
         {/* 保持页面挂载，避免切换导航时丢失已授权根和扫描状态。 */}
         <div hidden={page !== 'home'}>
           <OrganizePage settingsState={settingsState} onPlanReady={openPreview} />
         </div>
         <div hidden={page !== 'preview'}>
-          <PreviewPage planId={plan?.id ?? null} rootPath={plan?.rootPath ?? null} />
+          <PreviewPage key={plan?.id ?? 'empty'} planId={plan?.id ?? null} rootPath={plan?.rootPath ?? null} />
         </div>
         <div hidden={page !== 'history'}>
           {/* 历史页的「重新预览」就是回首页重新走一遍：
               执行过的计划不能再跑第二次，所以只给这一条出口。
               「去核对」则把需要人工核对的那条记录交给恢复页。 */}
           <HistoryPage
+            active={page === 'history'}
             onRestart={() => setPage('home')}
             onInspectRecovery={openRecovery}
             onUndo={openUndo}

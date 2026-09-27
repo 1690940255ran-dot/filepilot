@@ -264,11 +264,15 @@ pub fn get_run(state: State<'_, AppState>, run_id: String) -> IpcResult<Option<R
 /// 这里直接读 `runs` 表而不是内存里的任务表——**这正是关键**：
 /// 应用重启后内存里的任务没了，但历史还在。
 #[tauri::command]
-pub fn list_runs(state: State<'_, AppState>, limit: Option<u32>) -> IpcResult<Vec<RunReport>> {
+pub fn list_runs(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+    cursor: Option<String>,
+) -> IpcResult<Vec<RunReport>> {
     let db = state.db();
     let limit = limit.unwrap_or(DEFAULT_RUN_PAGE);
 
-    let rows = match crate::storage::runs::list_runs(db, limit) {
+    let rows = match crate::storage::runs::list_runs_page(db, limit, cursor.as_deref()) {
         Ok(rows) => rows,
         Err(error) => return IpcResult::err(error),
     };

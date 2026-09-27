@@ -25,6 +25,7 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState<string | null>(null)
   const [instruction, setInstruction] = useState('')
+  const [ruleKind, setRuleKind] = useState<RuleKind>('byType')
   const ai = useAiDisclosure()
 
   const settings = settingsState.status === 'ready' ? settingsState.settings : null
@@ -148,11 +149,20 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
   const canScan = phase.status === 'ready' || phase.status === 'scanned'
 
   return (
-    <section className="page" aria-labelledby="home-heading">
+    <section className="page organize-page" aria-labelledby="home-heading">
+      <p className="eyebrow">{t.app.workspace}</p>
       <h2 className="page-heading" id="home-heading">
         {t.home.heading}
       </h2>
       <p className="page-description">{t.home.description}</p>
+
+      <ol className="workflow-steps" aria-label={t.home.heading}>
+        {t.home.steps.map((step, index) => (
+          <li key={step} aria-current={index === (currentRoot ? 1 : 0) ? 'step' : undefined} className={index === (currentRoot ? 1 : 0) ? 'step-current' : ''}>
+            <span aria-hidden="true">{index + 1}</span>{step}
+          </li>
+        ))}
+      </ol>
 
       <div className="action-row">
         <button
@@ -220,7 +230,7 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
       {phase.status === 'scanned' && (
         <>
           <h3 className="section-heading">{t.home.summaryTitle}</h3>
-          <dl className="info-grid">
+          <dl className="info-grid scan-stats">
             <dt>{t.home.summaryTotal}</dt>
             <dd>{phase.summary.total}</dd>
             <dt>{t.home.summaryUsable}</dt>
@@ -244,6 +254,15 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
 
           {phase.summary.usable > 0 && (
             <>
+              <fieldset className="rule-picker" disabled={building}>
+                <legend>{t.home.ruleHeading}</legend>
+                {(['byType', 'byMonth'] as const).map((kind) => (
+                  <label key={kind} className={ruleKind === kind ? 'rule-card rule-card-active' : 'rule-card'}>
+                    <input type="radio" name="rule-kind" value={kind} checked={ruleKind === kind} onChange={() => setRuleKind(kind)} />
+                    <span><strong>{t.home[kind]}</strong><small>{kind === 'byType' ? t.home.byTypeHint : t.home.byMonthHint}</small></span>
+                  </label>
+                ))}
+              </fieldset>
               {isAi ? (
                 <>
                   <h3 className="section-heading">{t.ai.heading}</h3>
@@ -281,7 +300,7 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
                     <button
                       type="button"
                       className="secondary-action"
-                      onClick={() => void buildPlan('byType')}
+                      onClick={() => void buildPlan(ruleKind)}
                       disabled={building}
                     >
                       {building ? t.home.building : t.home.buildPlan}
@@ -294,7 +313,7 @@ export function OrganizePage({ settingsState, onPlanReady }: OrganizePageProps):
                     <button
                       type="button"
                       className="primary-action"
-                      onClick={() => void buildPlan('byType')}
+                      onClick={() => void buildPlan(ruleKind)}
                       disabled={building}
                     >
                       {building ? t.home.building : t.home.buildPlan}

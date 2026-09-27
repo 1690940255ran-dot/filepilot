@@ -107,7 +107,32 @@ const table: Record<string, unknown> = {
   },
 }
 
-test.use({ viewport: { width: 1200, height: 800 } })
+test.use({ viewport: { width: 1200, height: 800 }, reducedMotion: 'reduce' })
+
+test('空态、历史、设置和窄窗口视觉检查', async ({ page }) => {
+  await installIpcMock(page, {
+    ...table,
+    recovery_status: { blocked: false, blockedRuns: [] },
+    list_runs: [],
+    list_providers: [],
+    get_ocr_status: { status: 'available', languages: ['zh-Hans-CN', 'en-US'], message: '识别语言可用' },
+  })
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: '选择文件夹' })).toBeVisible()
+  await page.screenshot({ path: 'docs/screenshots/home-empty.png' })
+  await page.getByRole('button', { name: '历史', exact: true }).click()
+  await expect(page.getByText(/还没有任何整理记录/)).toBeVisible()
+  await page.screenshot({ path: 'docs/screenshots/history-empty.png' })
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await expect(page.getByText('zh-Hans-CN', { exact: false })).toBeVisible()
+  await page.screenshot({ path: 'docs/screenshots/settings.png' })
+  for (const width of [1000, 640]) {
+    await page.setViewportSize({ width, height: 800 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
+    await page.screenshot({ path: `docs/screenshots/settings-${width}.png` })
+  }
+})
 
 test('采集 README 四张截图', async ({ page }) => {
   await installIpcMock(page, table)

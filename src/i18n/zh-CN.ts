@@ -8,6 +8,9 @@ export const zhCN = {
     nameEn: 'FilePilot',
     tagline: '用自然语言整理本地文件，每一步都可预览、可确认、可撤销',
     versionLabel: '版本',
+    workspace: '本地文件工作台',
+    safety: '先预览，再确认',
+    safetyHint: '每一次整理都有记录可查。',
   },
 
   nav: {
@@ -56,6 +59,12 @@ export const zhCN = {
     building: '正在生成…',
     buildFailed: '生成整理建议失败。',
     buildPlanNotice: '生成建议只做只读分析，不会移动、重命名或删除任何文件。',
+    ruleHeading: '选择整理方式',
+    byType: '按文件类型',
+    byTypeHint: '文档、图片、音视频，各归其位',
+    byMonth: '按修改月份',
+    byMonthHint: '按最后修改时间归入年月文件夹',
+    steps: ['选择文件夹', '扫描与设置', '预览并确认'],
   },
 
   history: {
@@ -63,6 +72,8 @@ export const zhCN = {
     empty: '还没有任何整理记录。完成一次整理后，计划、执行日志与恢复状态会显示在这里。',
     emptyHint: '历史记录保存在本机数据库中，不会上传。',
     reload: '刷新',
+    loadMore: '加载更早记录',
+    loadingMore: '正在加载…',
     startedAt: '开始时间',
     status: '状态',
     appliedColumn: '已移动',
@@ -115,7 +126,7 @@ export const zhCN = {
     providerLabel: '已选模型提供商',
     providerNone: '未配置',
     readOnlyNotice:
-      '当前版本设置项为只读。可写设置需要存储层（P2 阶段）与模型提供商接入（P6 阶段）后才能生效。',
+      '当前整理模式和扫描上限为只读；模型提供商可以在下方管理。',
     secretsNotice:
       'API Key 只保存到 Windows 凭据存储，界面保存后不再读回明文。设置表内不存任何密钥。',
 
@@ -210,6 +221,13 @@ export const zhCN = {
     building: '正在生成计划…',
   },
   preview: {
+    search: '搜索文件或目标路径',
+    filterLabel: '显示范围',
+    deselectFiltered: '取消筛选项的选择',
+    filterEmpty: '没有匹配的文件。试试其他关键词或显示范围。',
+    filterCount: (shown: number, total: number) => `显示 ${shown} / ${total} 项`,
+    filterHint: '筛选只改变显示范围，隐藏项的选择会保留。批量取消后需应用修改。',
+    reasonHeading: '整理理由',
     heading: '整理预览',
     description:
       '下面是计划中的所有变更。逐条确认后再执行；执行前还会重新核对每个文件，发现变化会立即停止。',
@@ -264,6 +282,7 @@ export const zhCN = {
     nothingSelected: '没有选中任何项。',
     staleAfterEdit: '计划已被修改，请重新预览后再确认。',
     needValidate: '请先点「校验并获取确认」，再执行确认。',
+    saveBeforeValidate: '有尚未保存的修改。请先应用或放弃修改，再校验并确认。',
     tokenExpired: '确认已超过 5 分钟有效期，请重新预览并确认。',
     tokenUsed: '该确认已被使用过，不能重复执行。',
     clearConfirmation: '清除确认',

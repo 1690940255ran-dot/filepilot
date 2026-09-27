@@ -89,6 +89,14 @@ async function scanUntilReady(mode: 'rules' | 'aiLocal' | 'aiCloud') {
 }
 
 describe('首页的 AI 模式接线', () => {
+  it('选择修改月份后将 byMonth 提交给规划器', async () => {
+    await scanUntilReady('rules')
+    await userEvent.click(screen.getByRole('radio', { name: /按修改月份/ }))
+    await userEvent.click(screen.getByRole('button', { name: t.home.buildPlan }))
+    expect(mockedCall).toHaveBeenCalledWith('create_plan', {
+      scanId: FIXTURES.task.scanId, ruleKind: 'byMonth', analysisId: null,
+    })
+  })
   it('规则模式下不出现 AI 的要求输入', async () => {
     await scanUntilReady('rules')
 

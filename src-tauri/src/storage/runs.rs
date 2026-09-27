@@ -183,19 +183,48 @@ pub fn finish_run(
 /// 规格 T07：history 页面要「从数据库恢复状态」，因此这里不返回内存里的任务，
 /// 而是直接读 `runs` 表——应用重启后历史仍在，这正是它与运行期任务表的区别。
 pub fn list_runs(db: &Database, limit: u32) -> Result<Vec<RunRow>, AppError> {
+    list_runs_page(db, limit, None)
+}
+
+/// 稳定游标分页。游标是上一页最后一条 run 的 id；同一毫秒的记录以
+/// SQLite rowid 打破平局，避免按时间戳分页时漏项或重复。
+pub fn list_runs_page(
+    db: &Database,
+    limit: u32,
+    cursor: Option<&str>,
+) -> Result<Vec<RunRow>, AppError> {
     // limit 由调用方给，但不能无限大：一次读几十万行会让界面卡死。
     let limit = i64::from(limit.clamp(1, MAX_LISTED_RUNS));
 
     let connection = db.connection();
+    let (cursor_time, cursor_rowid): (Option<String>, Option<i64>) = match cursor {
+        None => (None, None),
+        Some(id) => connection
+            .query_row(
+                "SELECT startedAt, rowid FROM runs WHERE id = ?1",
+                [id],
+                |row| Ok((Some(row.get(0)?), Some(row.get(1)?))),
+            )
+            .optional()
+            .map_err(map_db_error)?
+            .ok_or_else(|| {
+                AppError::new(
+                    crate::domain::errors::codes::STALE_PLAN,
+                    "历史游标已失效，请刷新列表",
+                )
+            })?,
+    };
     let mut statement = connection
         .prepare(
             "SELECT id, planId, requestId, direction, status, startedAt, finishedAt
-             FROM runs ORDER BY startedAt DESC, rowid DESC LIMIT ?1",
+             FROM runs
+             WHERE ?1 IS NULL OR startedAt < ?1 OR (startedAt = ?1 AND rowid < ?2)
+             ORDER BY startedAt DESC, rowid DESC LIMIT ?3",
         )
         .map_err(map_db_error)?;
 
     let rows = statement
-        .query_map([limit], |row| {
+        .query_map(params![cursor_time, cursor_rowid, limit], |row| {
             Ok(RunRow {
                 id: row.get(0)?,
                 plan_id: row.get(1)?,
@@ -214,6 +243,41 @@ pub fn list_runs(db: &Database, limit: u32) -> Result<Vec<RunRow>, AppError> {
 
 /// 一次最多列出多少条执行记录。
 pub const MAX_LISTED_RUNS: u32 = 200;
+
+/// 恢复概况不能复用历史展示上限：第 201 条以前的未决 run 仍会阻止执行。
+pub fn list_recovery_candidates(db: &Database) -> Result<Vec<RunRow>, AppError> {
+    let connection = db.connection();
+    let mut statement = connection
+        .prepare(
+            "SELECT r.id, r.planId, r.requestId, r.direction, r.status, r.startedAt, r.finishedAt
+             FROM runs r
+             WHERE r.status IN ('queued', 'running', 'recoveryRequired')
+                OR EXISTS (
+                    SELECT 1 FROM operations o
+                    WHERE o.runId = r.id
+                      AND o.status IN ('pending', 'prepared', 'ambiguous')
+                      AND o.resolution = 'open'
+                )
+             ORDER BY r.startedAt DESC, r.rowid DESC",
+        )
+        .map_err(map_db_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(RunRow {
+                id: row.get(0)?,
+                plan_id: row.get(1)?,
+                request_id: row.get(2)?,
+                direction: row.get(3)?,
+                status: row.get(4)?,
+                started_at: row.get(5)?,
+                finished_at: row.get(6)?,
+            })
+        })
+        .map_err(map_db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_db_error)?;
+    Ok(rows)
+}
 
 /// 所有仍处于非终态的 run。
 ///
@@ -1276,6 +1340,55 @@ mod tests {
         // 空列表会让界面显示「还没有任何记录」，那是误导。
         let clamped = list_runs(&db, 0).expect("应能列出");
         assert_eq!(clamped.len(), 1);
+    }
+
+    #[test]
+    fn history_cursor_reaches_older_runs_even_when_timestamps_are_equal() {
+        let db = db();
+        seed_plan(&db, "plan-1");
+        for index in 0..52 {
+            insert_run(
+                &db,
+                &format!("run-{index}"),
+                "plan-1",
+                &format!("req-{index}"),
+                "apply",
+                "2026-09-17T00:00:00.000Z",
+            )
+            .expect("建 run");
+        }
+
+        let first = list_runs_page(&db, 50, None).expect("第一页");
+        assert_eq!(first.len(), 50);
+        let second = list_runs_page(&db, 50, Some(&first[49].id)).expect("第二页");
+        assert_eq!(second.len(), 2);
+        assert_eq!(second[0].id, "run-1");
+        assert_eq!(second[1].id, "run-0");
+    }
+
+    #[test]
+    fn recovery_candidates_are_not_limited_to_recent_history() {
+        let db = db();
+        seed_plan(&db, "plan-1");
+        insert_run(&db, "old-blocked", "plan-1", "req-old", "apply", "t0").expect("建未决 run");
+        finish_run(&db, "old-blocked", RunStatus::RecoveryRequired, "t1").expect("标记未决");
+        for index in 0..201 {
+            let id = format!("run-{index}");
+            insert_run(
+                &db,
+                &id,
+                "plan-1",
+                &format!("req-{index}"),
+                "apply",
+                &format!("t{index:04}"),
+            )
+            .expect("建新 run");
+            finish_run(&db, &id, RunStatus::Completed, "t9999").expect("完成");
+        }
+
+        let candidates = list_recovery_candidates(&db).expect("列未决候选");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].id, "old-blocked");
     }
 
     #[test]

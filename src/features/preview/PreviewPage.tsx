@@ -15,7 +15,6 @@ import type {
 import { t } from '../../i18n/zh-CN'
 import { ConfirmDialog, disabledReasons } from './ConfirmDialog'
 import { IssueList } from './IssueList'
-import { PathDiff } from './PathDiff'
 import { useWindowedRows } from './useWindowedRows'
 import {
   effectivePlan,
@@ -25,6 +24,7 @@ import {
   joinPath,
   previewReducer,
   selectedCount,
+  splitPath,
 } from './previewReducer'
 
 interface PreviewPageProps {
@@ -42,6 +42,8 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [editing, setEditing] = useState<string | null>(null)
   const [draftText, setDraftText] = useState('')
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -124,9 +126,17 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
   // 窗口化只影响**渲染哪几行**。勾选与草稿按 itemId 存在 reducer 里，
   // 所以滚出视口的行被卸载后，它的状态仍然在——滚回来时照旧。
   // 规格 T14 那句「筛选和编辑不丢选中状态」说的正是这件事。
-  const windowed = useWindowedRows(plainPlan?.items ?? [])
+  const issueIds = new Set((state.report?.issues ?? []).filter((issue) => issue.severity !== 'info').map((issue) => issue.itemId))
+  const globalIssue = issueIds.has(null)
+  const search = query.trim().toLocaleLowerCase()
+  const filteredItems = (plainPlan?.items ?? []).filter((item) =>
+    (!search || `${joinPath(item.source)} ${joinPath(item.target)}`.toLocaleLowerCase().includes(search)) &&
+    (filter !== 'selected' || item.selected) &&
+    (filter !== 'conflicts' || globalIssue || issueIds.has(item.id)))
+  const windowed = useWindowedRows(filteredItems)
   const selected = selectedCount(plainPlan)
-  const canConfirm = isConfirmationCurrent(state.confirmation, nowMs)
+  const pendingEdits = hasPendingEdits(state)
+  const canConfirm = !pendingEdits && isConfirmationCurrent(state.confirmation, nowMs)
 
   const startEdit = useCallback((item: PlanItem) => {
     setEditing(item.id)
@@ -141,6 +151,10 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
 
   const runValidate = useCallback(async () => {
     if (!planId) return
+    if (hasPendingEdits(state)) {
+      dispatch({ type: 'saveFailed', message: t.preview.saveBeforeValidate })
+      return
+    }
     setBusy(true)
     try {
       const report = await call<ValidationReport | null>('validate_plan', { planId })
@@ -163,7 +177,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
     } finally {
       setBusy(false)
     }
-  }, [planId])
+  }, [planId, state])
 
   const saveEdits = useCallback(async () => {
     if (!planId || !state.plan) return
@@ -173,11 +187,13 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
       const updated = await call<Plan>('update_plan', {
         planId,
         expectedRevision: state.plan.revision,
-        edits: Object.entries(state.drafts).map(([itemId, target]) => ({
-          itemId,
-          selected: state.selectionDrafts[itemId] ?? null,
-          target: target.split(/[\\/]/).filter((part) => part.length > 0),
-        })),
+        edits: state.plan.items
+          .filter((item) => item.id in state.drafts || item.id in state.selectionDrafts)
+          .map((item) => ({
+            itemId: item.id,
+            selected: state.selectionDrafts[item.id] ?? null,
+            target: item.id in state.drafts ? splitPath(state.drafts[item.id]!) : null,
+          })),
       })
       dispatch({ type: 'planLoaded', plan: updated })
     } catch (raw) {
@@ -209,7 +225,12 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
   }, [progress?.taskId])
 
   const execute = useCallback(async () => {
-    if (!planId || state.confirmation.token === null) return
+    if (
+      !planId ||
+      hasPendingEdits(state) ||
+      !isConfirmationCurrent(state.confirmation, Date.now()) ||
+      state.confirmation.token === null
+    ) return
 
     // **同步**守卫，不能用 `busy` 这个 state。
     //
@@ -256,7 +277,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
       executingRef.current = false
       setBusy(false)
     }
-  }, [planId, state.confirmation.token])
+  }, [planId, state])
 
   if (!planId) {
     return (
@@ -270,7 +291,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
   }
 
   return (
-    <section className="page" aria-labelledby="preview-heading">
+    <section className="page preview-page" aria-labelledby="preview-heading">
       <h2 className="page-heading" id="preview-heading">
         {t.preview.heading}
       </h2>
@@ -305,6 +326,18 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
 
           {state.report && <IssueList issues={state.report.issues} />}
 
+          <div className="preview-toolbar">
+            <input type="search" aria-label={t.preview.search} placeholder={t.preview.search} value={query} onChange={(event) => setQuery(event.target.value)} />
+            <select aria-label={t.preview.filterLabel} value={filter} onChange={(event) => setFilter(event.target.value)}>
+              <option value="all">{t.preview.filterAll}</option>
+              <option value="selected">{t.preview.filterSelected}</option>
+              <option value="conflicts">{t.preview.filterConflicts}</option>
+            </select>
+            <button type="button" className="secondary-action" disabled={busy || !filteredItems.some((item) => item.selected)} onClick={() => dispatch({ type: 'deselectItems', itemIds: filteredItems.map((item) => item.id) })}>{t.preview.deselectFiltered}</button>
+          </div>
+          <p className="filter-summary">{t.preview.filterCount(filteredItems.length, plainPlan.items.length)}<span>{t.preview.filterHint}</span></p>
+          {filteredItems.length === 0 && <p className="empty-state">{t.preview.filterEmpty}</p>}
+
           {/* 滚动容器。窗口化只渲染视口内的行，其余用上下两行占位撑开
               滚动条——所以占位高度必须等于「行数 × 行高」，而行高是常量。
 
@@ -326,13 +359,14 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                 <th scope="col">{t.preview.columnTarget}</th>
                 <th scope="col">{t.preview.columnAction}</th>
                 <th scope="col">{t.preview.columnOrigin}</th>
+                <th scope="col">{t.preview.reasonHeading}</th>
               </tr>
             </thead>
             <tbody>
               {/* 上方占位：撑出「已经滚过去的那几行」的高度。 */}
               {windowed.paddingTop > 0 && (
                 <tr aria-hidden="true" style={{ height: windowed.paddingTop }}>
-                  <td colSpan={5} />
+                  <td colSpan={6} />
                 </tr>
               )}
               {windowed.visible.map((item) => (
@@ -341,6 +375,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                     <input
                       type="checkbox"
                       checked={item.selected}
+                      disabled={busy}
                       aria-label={`${t.preview.columnSelect} ${joinPath(item.source)}`}
                       onChange={(event) =>
                         dispatch({
@@ -352,7 +387,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                     />
                   </td>
                   <td>
-                    <span className="path-text">{joinPath(item.source)}</span>
+                    <span className="path-text" title={joinPath(item.source)}>{joinPath(item.source)}</span>
                   </td>
                   <td>
                     {editing === item.id ? (
@@ -360,10 +395,11 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                         <input
                           type="text"
                           value={draftText}
+                          disabled={busy}
                           aria-label={t.preview.editTarget}
                           onChange={(event) => setDraftText(event.target.value)}
                         />
-                        <button type="button" onClick={applyEdit}>
+                        <button type="button" onClick={applyEdit} disabled={busy}>
                           {t.preview.applyEdit}
                         </button>
                         <button type="button" onClick={() => setEditing(null)}>
@@ -372,11 +408,12 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                       </span>
                     ) : (
                       <span className="target-cell">
-                        <PathDiff source={item.source} target={item.target} />
+                        <span className="path-text path-target" title={joinPath(item.target)}>{joinPath(item.target)}</span>
                         <button
                           type="button"
                           className="link-button"
                           onClick={() => startEdit(item)}
+                          disabled={busy}
                         >
                           {t.preview.editTarget}
                         </button>
@@ -393,12 +430,13 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                         ? t.preview.originAi
                         : t.preview.originUser}
                   </td>
+                  <td title={item.reason}>{item.reason}</td>
                 </tr>
               ))}
               {/* 下方占位：撑出「还没滚到的那几行」的高度。 */}
               {windowed.paddingBottom > 0 && (
                 <tr aria-hidden="true" style={{ height: windowed.paddingBottom }}>
-                  <td colSpan={5} />
+                  <td colSpan={6} />
                 </tr>
               )}
             </tbody>
@@ -407,7 +445,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
           {/* eslint-enable react-hooks/refs */}
 
           <div className="action-row">
-            {hasPendingEdits(state) && (
+            {pendingEdits && (
               <>
                 <button type="button" className="secondary-action" onClick={() => void saveEdits()} disabled={busy}>
                   {t.preview.applyEdit}
@@ -416,6 +454,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
                   type="button"
                   className="secondary-action"
                   onClick={() => dispatch({ type: 'draftsDiscarded' })}
+                  disabled={busy}
                 >
                   {t.preview.discardEdits}
                 </button>
@@ -426,7 +465,7 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
               type="button"
               className="secondary-action"
               onClick={() => void runValidate()}
-              disabled={busy}
+              disabled={busy || pendingEdits}
             >
               {busy ? t.preview.validating : t.preview.validateButton}
             </button>
@@ -497,7 +536,8 @@ export function PreviewPage({ planId, rootPath }: PreviewPageProps): JSX.Element
             对话框默认是关的，用户看到的会是一个灰掉却不说原因的按钮，
             只能靠反复点击去猜。规格 T14 明确要求禁用理由对用户可见。
           */}
-          {!canConfirm && (
+          {pendingEdits && <p className="disabled-reason">{t.preview.saveBeforeValidate}</p>}
+          {!canConfirm && !pendingEdits && (
             <ul className="disabled-reasons" role="status">
               {disabledReasons(state.confirmation, selected, nowMs).map((reason) => (
                 <li key={reason}>{reason}</li>

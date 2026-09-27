@@ -131,11 +131,13 @@ test.describe('重复点击', () => {
 
     await page.getByRole('button', { name: '确认并执行' }).click()
 
-    // 连点两次对话框按钮。第一次之后 busy 变 true，第二次不该再发请求。
+    // 同一事件循环内连续触发两次 click，验证同步的 executingRef 守卫。
+    // 不对第一次点击后已消失的按钮再用 Locator.click：那只会等待到测试超时。
     const confirmInDialog = page.getByRole('button', { name: '确认执行' })
-    await confirmInDialog.click()
-    await confirmInDialog.click({ force: true }).catch(() => {
-      // 按钮已经随对话框一起消失是**期望**行为，不是失败
+    await confirmInDialog.evaluate((button) => {
+      const target = button as HTMLButtonElement
+      target.click()
+      target.click()
     })
 
     const calls = await page.evaluate(() => window.__FILPILOT_CALLS__ ?? [])

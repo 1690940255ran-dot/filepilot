@@ -29,6 +29,15 @@ function scrollTo(element: HTMLDivElement, top: number): void {
 }
 
 describe('计划表格的窗口化', () => {
+  it('滚动后筛选为短列表仍显示结果，不保留越界占位', () => {
+    const { result, rerender } = renderHook(({ rows }) => useWindowedRows(rows), { initialProps: { rows: TEN_THOUSAND } })
+    const element = document.createElement('div')
+    scrollTo(element, 500 * PLAN_ROW_HEIGHT)
+    act(() => result.current.onScroll({ currentTarget: element } as unknown as React.UIEvent<HTMLDivElement>))
+    rerender({ rows: [{ id: 'match' }] })
+    expect(result.current.visible).toEqual([{ id: 'match' }])
+    expect(result.current.paddingTop).toBe(0)
+  })
   it('10,000 条时只渲染视口内的那一小段', () => {
     const { result } = renderHook(() => useWindowedRows(TEN_THOUSAND))
 

@@ -24,9 +24,7 @@ use crate::recovery::startup::recover_unfinished_runs;
 use crate::recovery::{acknowledge_items, reconcile_run, ReconcileOutcome};
 use crate::safety::confirmation::now_unix_ms;
 use crate::storage::repositories::load_plan;
-use crate::storage::runs::{
-    count_operations, list_operations, list_runs, load_run, MAX_LISTED_RUNS,
-};
+use crate::storage::runs::{count_operations, list_operations, list_recovery_candidates, load_run};
 
 /// 读一次执行的实时恢复报告。
 ///
@@ -96,7 +94,7 @@ pub fn recover_pending_runs(state: State<'_, AppState>) -> IpcResult<Vec<Recover
 #[tauri::command]
 pub fn recovery_status(state: State<'_, AppState>) -> IpcResult<RecoveryStatus> {
     let db = state.db();
-    let runs = match list_runs(db, MAX_LISTED_RUNS) {
+    let runs = match list_recovery_candidates(db) {
         Ok(runs) => runs,
         Err(error) => return IpcResult::err(error),
     };

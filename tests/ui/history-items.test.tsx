@@ -79,6 +79,34 @@ async function expandFirstRun(): Promise<void> {
 }
 
 describe('PR-003：历史明细', () => {
+  it('页面重新进入历史时自动刷新，不依赖用户手动点刷新', async () => {
+    stubIpc({ list_runs: [run()] })
+    const view = render(<HistoryPage active={false} />)
+    expect(mockedCall.mock.calls.filter(([command]) => command === 'list_runs')).toHaveLength(0)
+
+    view.rerender(<HistoryPage active />)
+    await waitFor(() => expect(mockedCall.mock.calls.filter(([command]) => command === 'list_runs')).toHaveLength(1))
+
+    view.rerender(<HistoryPage active={false} />)
+    view.rerender(<HistoryPage active />)
+    await waitFor(() => expect(mockedCall.mock.calls.filter(([command]) => command === 'list_runs')).toHaveLength(2))
+  })
+
+  it('超过 50 条时可加载更早的历史记录', async () => {
+    const first = Array.from({ length: 50 }, (_, index) => run({ runId: `run-${index}` }))
+    const older = run({ runId: 'run-older', planId: 'plan-older' })
+    mockedCall.mockImplementation(((command: string, args?: { cursor?: string }) => {
+      if (command !== 'list_runs') return Promise.reject(new Error(`未预设 ${command}`))
+      return Promise.resolve(args?.cursor ? [older] : first)
+    }) as typeof call)
+
+    render(<HistoryPage />)
+    await waitFor(() => expect(mockedCall).toHaveBeenCalledWith('list_runs', { limit: 50, cursor: null }))
+    await userEvent.click(await screen.findByRole('button', { name: t.history.loadMore }))
+    await waitFor(() => expect(mockedCall).toHaveBeenCalledWith('list_runs', { limit: 50, cursor: 'run-49' }))
+    expect(await screen.findByText(/plan-ol/)).toBeInTheDocument()
+  })
+
   it('展开一条顺利的整理，能看到具体文件路径，而不是只有「没有发现问题」', async () => {
     /*
       这一条直接对应缺陷现场：一次顺利的整理 `issues` 为空，

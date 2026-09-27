@@ -93,8 +93,8 @@ export function useWindowedRows<T>(
   // 视口还没量出来时先按「一屏多一点」渲染：宁可多渲染几行，也不要先闪空白。
   const effectiveViewport = viewportHeight > 0 ? viewportHeight : rowHeight * 20
 
-  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
   const visibleCount = Math.ceil(effectiveViewport / rowHeight) + OVERSCAN * 2
+  const first = Math.min(Math.max(0, rows.length - visibleCount), Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN))
   const end = Math.min(rows.length, first + visibleCount)
 
   return {

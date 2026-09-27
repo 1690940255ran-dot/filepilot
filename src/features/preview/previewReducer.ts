@@ -79,6 +79,7 @@ export type PreviewAction =
   | { type: 'planLoaded'; plan: Plan }
   | { type: 'reportLoaded'; report: ValidationReport; token: string | null; expiresAtMs: number }
   | { type: 'draftToggled'; itemId: string; selected: boolean }
+  | { type: 'deselectItems'; itemIds: string[] }
   | { type: 'draftTarget'; itemId: string; target: string }
   | { type: 'draftsDiscarded' }
   | { type: 'saveStarted' }
@@ -166,6 +167,7 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
       return {
         ...state,
         plan: action.plan,
+        report: null,
         drafts: {},
         selectionDrafts: {},
         saving: false,
@@ -175,6 +177,16 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
       }
 
     case 'reportLoaded':
+      // 校验期间用户可能继续编辑，或已经切到另一份计划。迟到的报告
+      // 绝不能给屏幕上的另一份内容重新签出可点击的确认。
+      if (
+        !state.plan ||
+        hasPendingEdits(state) ||
+        action.report.planId !== state.plan.id ||
+        action.report.revision !== state.plan.revision
+      ) {
+        return state
+      }
       return {
         ...state,
         report: action.report,
@@ -189,6 +201,15 @@ export function previewReducer(state: PreviewState, action: PreviewAction): Prev
           expiresAtMs: action.expiresAtMs,
         },
       }
+
+    case 'deselectItems': {
+      const ids = new Set(action.itemIds)
+      const changes = Object.fromEntries((state.plan?.items ?? [])
+        .filter((item) => ids.has(item.id) && (state.selectionDrafts[item.id] ?? item.selected))
+        .map((item) => [item.id, false]))
+      if (Object.keys(changes).length === 0) return state
+      return { ...invalidate(state), selectionDrafts: { ...state.selectionDrafts, ...changes } }
+    }
 
     case 'draftToggled': {
       const next = invalidate(state)

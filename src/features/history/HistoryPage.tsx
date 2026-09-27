@@ -19,6 +19,8 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 interface HistoryPageProps {
+  /** 页面常驻挂载时，进入历史才重新读取数据库。 */
+  active?: boolean
   /** 用户选择「重新预览」时回到首页。 */
   onRestart?: () => void
   /**
@@ -49,6 +51,7 @@ interface HistoryPageProps {
  * 规格明确要求「不显示可能重复执行的盲重试按钮」。
  */
 export function HistoryPage({
+  active = true,
   onRestart,
   onInspectRecovery,
   onUndo,
@@ -58,14 +61,18 @@ export function HistoryPage({
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
 
-    call<RunReport[]>('list_runs', { limit: PAGE_SIZE })
+    call<RunReport[]>('list_runs', { limit: PAGE_SIZE, cursor: null })
       .then((list) => {
         if (cancelled) return
         setRuns(list)
+        setHasMore(list.length === PAGE_SIZE)
         setError(null)
       })
       .catch((raw: unknown) => {
@@ -78,13 +85,34 @@ export function HistoryPage({
     return () => {
       cancelled = true
     }
-  }, [reloadToken])
+  }, [active, reloadToken])
 
   const reload = useCallback(() => {
     setRuns(null)
     setError(null)
+    setHasMore(false)
     setReloadToken((token) => token + 1)
   }, [])
+
+  const loadMore = useCallback(async () => {
+    const cursor = runs?.at(-1)?.runId
+    if (!active || !hasMore || loadingMore || !cursor) return
+    setLoadingMore(true)
+    try {
+      const next = await call<RunReport[]>('list_runs', { limit: PAGE_SIZE, cursor })
+      setRuns((current) => {
+        if (current === null) return current
+        const seen = new Set(current.map((row) => row.runId))
+        return [...current, ...next.filter((row) => !seen.has(row.runId))]
+      })
+      setHasMore(next.length === PAGE_SIZE)
+      setError(null)
+    } catch (raw) {
+      setError(raw instanceof IpcError ? raw.message : t.common.unknownError)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [active, hasMore, loadingMore, runs])
 
   return (
     <section className="page" aria-labelledby="history-heading">
@@ -114,7 +142,7 @@ export function HistoryPage({
       )}
 
       {runs !== null && runs.length > 0 && (
-        <ul className="run-list">
+        <><ul className="run-list">
           {runs.map((run) => (
             <li key={run.runId} className="run-item">
               <div className="run-summary">
@@ -237,6 +265,13 @@ export function HistoryPage({
             </li>
           ))}
         </ul>
+        {hasMore && (
+          <div className="action-row">
+            <button type="button" className="secondary-action" onClick={() => void loadMore()} disabled={loadingMore}>
+              {loadingMore ? t.history.loadingMore : t.history.loadMore}
+            </button>
+          </div>
+        )}</>
       )}
     </section>
   )

@@ -206,6 +206,26 @@ describe('previewReducer', () => {
     expect(toggled.confirmation.token).toBeNull()
   })
 
+  it('校验请求发出后又编辑，迟到的校验报告不能恢复确认', () => {
+    const loaded = previewReducer(INITIAL_PREVIEW_STATE, {
+      type: 'planLoaded',
+      plan: plan(1, [item('i1')]),
+    })
+    const edited = previewReducer(loaded, {
+      type: 'draftToggled',
+      itemId: 'i1',
+      selected: false,
+    })
+    const late = previewReducer(edited, {
+      type: 'reportLoaded',
+      report: report(1),
+      token: 'late-token',
+      expiresAtMs: 9_999_999_999,
+    })
+    expect(late.confirmation.token).toBeNull()
+    expect(hasPendingEdits(late)).toBe(true)
+  })
+
   it('丢弃草稿会清掉本地改动', () => {
     const loaded = previewReducer(INITIAL_PREVIEW_STATE, {
       type: 'planLoaded',
@@ -321,6 +341,34 @@ const aPlan = plan(3, [item('i1'), item('i2')])
 const noIssues = report(3, [], 2)
 
 describe('预览页 UI 接线', () => {
+  it('问题筛选显示校验关联项并保留未显示项的选择', async () => {
+    const data = plan(3, [item('i1', { source: ['problem.txt'] }), item('i2', { source: ['normal.txt'] })])
+    stubIpc({ get_plan: data, validate_plan: report(3, [{ code: 'TARGET_EXISTS', severity: 'block', itemId: 'i1', message: '目标已存在' }], 0) })
+    render(<PreviewPage planId="plan-1" rootPath="C:\\资料" />)
+    await userEvent.click(await screen.findByRole('button', { name: t.preview.validateButton }))
+    await screen.findByText('目标已存在')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: t.preview.filterLabel }), 'conflicts')
+    expect(screen.getByRole('checkbox', { name: /problem.txt/ })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: /normal.txt/ })).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: t.preview.filterLabel }), 'all')
+    expect(screen.getByRole('checkbox', { name: /normal.txt/ })).toBeChecked()
+  })
+  it('搜索后批量取消只影响匹配项，清空搜索不丢选择且旧确认失效', async () => {
+    const data = plan(3, [item('i1', { source: ['alpha.txt'] }), item('i2', { source: ['beta.txt'] })])
+    stubIpc({ get_plan: data, validate_plan: noIssues })
+    render(<PreviewPage planId="plan-1" rootPath="C:\\资料" />)
+    await userEvent.click(await screen.findByRole('button', { name: t.preview.validateButton }))
+    await waitFor(() => expect(screen.getByRole('button', { name: t.preview.confirmButton })).toBeEnabled())
+    const search = screen.getByRole('searchbox', { name: '搜索文件或目标路径' })
+    await userEvent.type(search, 'alpha')
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: '取消筛选项的选择' }))
+    await userEvent.clear(search)
+    expect(screen.getByRole('checkbox', { name: /alpha.txt/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /beta.txt/ })).toBeChecked()
+    expect(screen.getByRole('button', { name: t.preview.confirmButton })).toBeDisabled()
+  })
+
   it('没有计划时给出明确空态，而不是一片空白', () => {
     render(<PreviewPage planId={null} rootPath={null} />)
     expect(screen.getByText(t.preview.notReady)).toBeInTheDocument()
@@ -387,7 +435,7 @@ describe('预览页 UI 接线', () => {
     await userEvent.click(screen.getByRole('button', { name: t.preview.applyEdit }))
 
     await waitFor(() => expect(confirm).toBeDisabled())
-    expect(screen.getByText(t.preview.staleAfterEdit)).toBeInTheDocument()
+    expect(screen.getByText(t.preview.saveBeforeValidate)).toBeInTheDocument()
     expect(screen.queryByText(t.preview.needValidate)).not.toBeInTheDocument()
   })
 
@@ -443,6 +491,35 @@ describe('预览页 UI 接线', () => {
     await userEvent.click(boxes[0]!)
 
     await waitFor(() => expect(confirm).toBeDisabled())
+  })
+
+  it('未保存的勾选变化不能重新校验，更不能取得执行确认', async () => {
+    stubIpc({ get_plan: aPlan, validate_plan: noIssues })
+    render(<PreviewPage planId="plan-1" rootPath="C:\\资料" />)
+
+    const checkboxes = await screen.findAllByRole('checkbox', { name: /a\.txt/ })
+    await userEvent.click(checkboxes[0]!)
+
+    expect(screen.getByRole('button', { name: t.preview.validateButton })).toBeDisabled()
+    expect(screen.getByRole('button', { name: t.preview.confirmButton })).toBeDisabled()
+    expect(mockedCall.mock.calls.filter(([command]) => command === 'validate_plan')).toHaveLength(0)
+  })
+
+  it('只改勾选并应用时，update_plan 必须包含该项的 selected', async () => {
+    stubIpc({ get_plan: aPlan, update_plan: aPlan })
+    render(<PreviewPage planId="plan-1" rootPath="C:\\资料" />)
+
+    const checkboxes = await screen.findAllByRole('checkbox', { name: /a\.txt/ })
+    await userEvent.click(checkboxes[0]!)
+    await userEvent.click(screen.getByRole('button', { name: t.preview.applyEdit }))
+
+    await waitFor(() => {
+      expect(mockedCall).toHaveBeenCalledWith('update_plan', {
+        planId: 'plan-1',
+        expectedRevision: 3,
+        edits: [{ itemId: 'i1', selected: false, target: null }],
+      })
+    })
   })
 
   it('本阶段明确告知执行尚未接通', async () => {
