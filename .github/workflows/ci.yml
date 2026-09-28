@@ -110,13 +110,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 放在最前面：纯静态检查、几秒就出结果，能把「集成测试里进程内直调 WinRT」
-      # 这类问题挡在 10 分钟的编译之前。
+      # 放在最前面：纯静态检查、几秒就出结果，能把下面两类问题挡在
+      # 10~20 分钟的编译/装包之前。
       #
-      # 这条规矩本来就写在 `src-tauri/src/platform/ocr.rs` 的模块测试注释里，
-      # 但 2026-09-27 修 CI-005 时还是被违反了 —— 于是做成机械检查，
-      # 而不是继续指望注释（完整经过见 POST_RELEASE_TODO 的 CI-004）。
-      - name: 集成测试隔离检查（禁止进程内直调 WinRT）
+      # 两项检查都是「违反了不会立刻报错、只在特定环境下崩」的规矩：
+      #   1. 集成测试里进程内直调 WinRT（公寓绑定线程 → 完整套件段错误，CI-004）
+      #   2. 用 5.1 版 shell 的步骤脚本含非 ASCII（无 BOM 的 .ps1 被按代码页读 → ParserError，CI-005）
+      #
+      # 这两条规矩**本来就写在源码注释里**，但都被违反过（其中一条是我自己）。
+      # 所以做成机械检查，而不是继续指望注释。
+      - name: CI 静态检查（测试隔离 + 工作流脚本编码）
         run: python scripts/check-test-isolation.py
 
       - uses: dtolnay/rust-toolchain@stable
@@ -179,6 +182,14 @@ jobs:
       #
       # 装的是系统能力（需要管理员，runner 是管理员）。实测本机装不了是因为
       # `Get-WindowsCapability -Online` 要求提升权限 —— 那是本机限制，不是 runner 的。
+      #
+      # **这一步用 7 版是刻意的**：它不需要 WinRT 投影，而 7 版读 UTF-8 脚本正常，
+      # 所以可以放心打中文日志。下一步的约束反过来（见那里的说明）。
+      #
+      # **代价要如实记**：`Add-WindowsCapability` 要访问 Windows Update，
+      # 实测让这个 job **多花约 20 分钟**。这是「在 CI 上真的验一次 OCR」
+      # 的价钱。若将来嫌慢，可把它拆成一个独立 job 与 rust job 并行跑
+      # （两边都要编译，但不再串行等待）。
       - name: 安装中文 OCR 语言包
         shell: pwsh
         run: |
@@ -188,26 +199,36 @@ jobs:
           Write-Host ("RestartNeeded = " + $result.RestartNeeded)
           $result | Format-List | Out-String | Write-Host
 
-      # **必须用 Windows PowerShell 5.1，不能用 pwsh 7。**
+      # ## 这一步有两处踩过的坑，都写在下面，别再改回去
       #
-      # 2026-09-28 实测踩到：pwsh 7 没有内置的 WinRT 类型投影，这句直接报
-      #   Unable to find type [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
-      # 于是这一步会**因为语法而不因为事实**失败（本机用 5.1 验证过能跑）。
-      # 5.1 自带投影，一次就能问到真实答案。
+      # **坑 1：必须用 Windows PowerShell 5.1，不能用 7 版。**
+      # 7 版没有内置的 WinRT 类型投影，那句 `[Windows.Media.Ocr.OcrEngine,…]`
+      # 会直接报 `Unable to find type [...]`，于是这一步
+      # **因为语法失败、而不是因为事实失败**。
+      #
+      # **坑 2：既然用了 5.1，脚本就必须全 ASCII。**
+      # GitHub 会把 `run:` 块写成临时 `.ps1`；5.1 在没有 BOM 时按**系统代码页**
+      # 读它，于是中文被解成乱码并直接 ParserError（实测：`不要放过…`
+      # 变成 `ä¸è¦æ”¾è¿‡…`）。7 版默认按 UTF-8 读，所以不会踩这个 ——
+      # 但坑 1 又逼着我们必须用 5.1。
+      #
+      # 两条合起来 ⇒ **这一步的脚本只用 ASCII，提示信息用英文**。
+      # （步骤名是 YAML 字段，不走脚本文件，中文没问题。）
       - name: 确认 OCR 真的可用（否则下面的用例会静默降级）
         shell: powershell
         run: |
           [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
           $langs = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages |
             ForEach-Object { $_.LanguageTag }
-          Write-Host ("OCR 识别语言：" + ($langs -join '、'))
+          Write-Host ("OCR recognizer languages: " + ($langs -join ', '))
           $chinese = $langs | Where-Object { $_ -like 'zh*' }
           if (-not $chinese) {
-            Write-Error ('装完语言包后仍没有中文 OCR —— 真实识别无法在 CI 上被验证。' +
-              '不要放过这一条：它会让 CI-005 的覆盖缺口静默回来。')
+            Write-Error ("No Chinese OCR after installing the language pack. " +
+              "Real OCR cannot be verified on CI, and the CI-005 coverage gap " +
+              "would silently reopen. Do NOT ignore this.")
             exit 1
           }
-          Write-Host ("中文 OCR 就绪：" + ($chinese -join '、'))
+          Write-Host ("Chinese OCR ready: " + ($chinese -join ', '))
 
       - name: 单元与集成测试
         shell: pwsh
