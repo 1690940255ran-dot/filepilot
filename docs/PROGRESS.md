@@ -95,6 +95,12 @@ Rust 侧经 `scripts/msvc-env.sh` 加载工具链。
 | `pnpm.cmd desktop:build` | 0；重新产出 3,046,429 字节 NSIS 安装包（含解析工作进程），SHA-256 `375088d7b539e88f424fd7e65dc5ca32c34129c4b2b15d4c8d4da8f9efe7777c` |
 | `python scripts/scan-release-content.py` | 设置 `PYTHONIOENCODING=utf-8` 后 exit 0；157 文件扫描，0 类命中；NSIS 压缩负载不在脚本覆盖范围 |
 
+> **上表里的哈希是历史记录（2026-09-28 标注）。** 那是**审查修复轮**的构建产物，
+> 该文件**未备份、现已不存在**；此后 CI-000~007 与 OCR 引擎修复又改动了生产代码，
+> 所以它既不是发布用的那一份、也无法复现。
+> **发布用哈希以 `RELEASE_CHECKLIST.md` 那一处为准**（当前为
+> `89cd417d…` / 3,060,973 字节），那里有完整的轮次对照表。
+
 `pnpm.cmd contracts:check` 入口在本机失败：它启动的子 PowerShell 找不到系统自带 `Get-FileHash`（exit 1）；直接运行上表的契约检查脚本成功。此为本机命令环境问题，不能把失败入口写成通过。内容扫描首次也因本机 Python 默认 GBK 无法输出警告符号而 exit 1；设置 UTF-8 后复跑通过。**新包尚未安装到合格的干净 Win11 x64 机器进行 T17 验收**；2026-09-25 Win10 报告和旧哈希只属于旧包。
 
 - 规格版本：MASTER_PLAN 1.0（`docs/MASTER_PLAN.md`）
