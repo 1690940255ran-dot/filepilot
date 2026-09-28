@@ -23,6 +23,8 @@
 //! 因此 [`availability`] 返回的是**结构化的原因**，不是一句「不可用」。
 //! 设置页直接拿它显示，用户才知道下一步点哪里。
 
+use windows::core::HSTRING;
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Security::Cryptography::CryptographicBuffer;
@@ -88,6 +90,62 @@ impl OcrAvailability {
     }
 }
 
+/// 系统里**已安装**的全部 OCR 识别语言标签。
+fn recognizer_languages() -> Result<Vec<String>, String> {
+    let list = OcrEngine::AvailableRecognizerLanguages()
+        .map_err(|error| format!("无法枚举识别语言: {error}"))?;
+    let mut collected = Vec::new();
+    for index in 0..list.Size().unwrap_or(0) {
+        if let Ok(language) = list.GetAt(index) {
+            if let Ok(tag) = language.LanguageTag() {
+                collected.push(tag.to_string());
+            }
+        }
+    }
+    Ok(collected)
+}
+
+/// 从已安装语言里挑出中文标签（保序）。
+fn chinese_language_tags(languages: &[String]) -> Vec<&str> {
+    languages
+        .iter()
+        .filter(|tag| tag.to_lowercase().starts_with("zh"))
+        .map(String::as_str)
+        .collect()
+}
+
+/// 造一个 OCR 引擎。
+///
+/// ## 为什么**不能**只用 `TryCreateFromUserProfileLanguages`（2026-09-28 CI-005 实测）
+///
+/// [`availability`] 判的是「**装没装**中文识别语言」，而
+/// `TryCreateFromUserProfileLanguages()` 造出来的是「**用户配置语言**」的引擎。
+/// 这两件事在「**装了**中文、但系统语言是英文」的机器上**不一致**：
+///
+/// * `availability()` → `Available { languages: ["en-US", "zh-Hans-CN"] }` → 告诉用户「可用」；
+/// * 引擎却是**英文**的 → 中文扫描件一个字都读不出来。
+///
+/// 这不是推演。CI 上给 runner 装上 `zh-CN` 语言包之后（runner 的配置语言是 `en-US`），
+/// 同一张中文夹具**只认出数字 `2026`、中文全丢**，而 `availability()` 报的是「可用」。
+/// 真实用户场景完全一样：中文用户装了中文 OCR，但系统显示语言没改成中文，
+/// 就会看到「OCR 可用」却读不出任何中文。
+///
+/// 所以顺序是：**先按中文造**（这正是 `availability()` 承诺过的那项能力），
+/// 造不出来再退回用户配置语言。产品面向中文用户，这个优先级与规格一致。
+fn create_engine() -> Result<OcrEngine, String> {
+    if let Ok(languages) = recognizer_languages() {
+        for tag in chinese_language_tags(&languages) {
+            if let Ok(language) = Language::CreateLanguage(&HSTRING::from(tag)) {
+                if let Ok(engine) = OcrEngine::TryCreateFromLanguage(&language) {
+                    return Ok(engine);
+                }
+            }
+        }
+    }
+    OcrEngine::TryCreateFromUserProfileLanguages()
+        .map_err(|error| format!("无法创建 OCR 引擎: {error}"))
+}
+
 /// 判断 OCR 是否可用。
 ///
 /// 每次都真的去问系统，不缓存结果：用户完全可能在我们运行期间去装了语言包，
@@ -97,33 +155,16 @@ pub fn availability() -> OcrAvailability {
         return OcrAvailability::Unsupported { reason };
     }
 
-    let languages = match OcrEngine::AvailableRecognizerLanguages() {
-        Ok(list) => {
-            let mut collected = Vec::new();
-            for index in 0..list.Size().unwrap_or(0) {
-                if let Ok(language) = list.GetAt(index) {
-                    if let Ok(tag) = language.LanguageTag() {
-                        collected.push(tag.to_string());
-                    }
-                }
-            }
-            collected
-        }
-        Err(error) => {
-            return OcrAvailability::Unsupported {
-                reason: format!("无法枚举识别语言: {error}"),
-            }
-        }
+    let languages = match recognizer_languages() {
+        Ok(languages) => languages,
+        Err(reason) => return OcrAvailability::Unsupported { reason },
     };
 
     if languages.is_empty() {
         return OcrAvailability::NoRecognizerLanguage;
     }
     // 中文的标签形如 `zh-Hans-CN` / `zh-Hant-TW`，统一按前缀 `zh` 判。
-    if !languages
-        .iter()
-        .any(|tag| tag.to_lowercase().starts_with("zh"))
-    {
+    if chinese_language_tags(&languages).is_empty() {
         return OcrAvailability::NoChineseLanguage { languages };
     }
 
@@ -151,8 +192,7 @@ pub fn recognize_bgra(pixels: &[u8], width: u32, height: u32) -> Result<String, 
 
     ensure_initialized()?;
 
-    let engine = OcrEngine::TryCreateFromUserProfileLanguages()
-        .map_err(|error| format!("无法创建 OCR 引擎: {error}"))?;
+    let engine = create_engine()?;
 
     // 用 `CreateFromByteArray` + `CreateCopyFromBuffer` 直接造位图，
     // 而不是走 `BitmapDecoder` + 内存流：解码已经在调用方做过了

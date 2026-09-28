@@ -188,8 +188,14 @@ jobs:
           Write-Host ("RestartNeeded = " + $result.RestartNeeded)
           $result | Format-List | Out-String | Write-Host
 
+      # **必须用 Windows PowerShell 5.1，不能用 pwsh 7。**
+      #
+      # 2026-09-28 实测踩到：pwsh 7 没有内置的 WinRT 类型投影，这句直接报
+      #   Unable to find type [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+      # 于是这一步会**因为语法而不因为事实**失败（本机用 5.1 验证过能跑）。
+      # 5.1 自带投影，一次就能问到真实答案。
       - name: 确认 OCR 真的可用（否则下面的用例会静默降级）
-        shell: pwsh
+        shell: powershell
         run: |
           [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
           $langs = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages |
