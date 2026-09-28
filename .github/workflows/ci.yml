@@ -166,8 +166,49 @@ jobs:
       # 输出走 success stream，`Tee-Object` 正常写文件（已用
       # `cargo --version 2>&1 | Tee-Object` 验证，日志 76 字节）。
       # 注意 `2>&1` 只合并 stderr，**不会**把 `Write-Host` 拉进管道。
+      # CI-005：让「真实 OCR 识别」在 CI 上也能被验到。
+      #
+      # 此前这条覆盖是缺的：runner 没装中文 OCR 语言包，于是 `tests/extract.rs`
+      # 里那两条用例只能走「如实报告缺失」的分支 ——
+      # 而规格 T11 要求的「OCR 有文字时返回可搜索片段」在 CI 上**从未被验证过**。
+      #
+      # 光靠跳过还不够，更糟的是它会**静默**：语言包哪天没装上或没生效，
+      # 用例照样绿，覆盖没了却没人知道。所以装完之后**立刻断言 OCR 真的可用**，
+      # 并给测试步骤设 `FILEPILOT_REQUIRE_OCR=1` ——
+      # 让「本该有 OCR 却报不可用」直接变成**失败**（见 tests/extract.rs 的 `ocr_required`）。
+      #
+      # 装的是系统能力（需要管理员，runner 是管理员）。实测本机装不了是因为
+      # `Get-WindowsCapability -Online` 要求提升权限 —— 那是本机限制，不是 runner 的。
+      - name: 安装中文 OCR 语言包
+        shell: pwsh
+        run: |
+          $name = 'Language.OCR~~~zh-CN~0.0.1.0'
+          Write-Host "安装 $name ..."
+          $result = Add-WindowsCapability -Online -Name $name -ErrorAction Stop
+          Write-Host ("RestartNeeded = " + $result.RestartNeeded)
+          $result | Format-List | Out-String | Write-Host
+
+      - name: 确认 OCR 真的可用（否则下面的用例会静默降级）
+        shell: pwsh
+        run: |
+          [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime] | Out-Null
+          $langs = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages |
+            ForEach-Object { $_.LanguageTag }
+          Write-Host ("OCR 识别语言：" + ($langs -join '、'))
+          $chinese = $langs | Where-Object { $_ -like 'zh*' }
+          if (-not $chinese) {
+            Write-Error ('装完语言包后仍没有中文 OCR —— 真实识别无法在 CI 上被验证。' +
+              '不要放过这一条：它会让 CI-005 的覆盖缺口静默回来。')
+            exit 1
+          }
+          Write-Host ("中文 OCR 就绪：" + ($chinese -join '、'))
+
       - name: 单元与集成测试
         shell: pwsh
+        env:
+          # 见 tests/extract.rs 的 `ocr_required()`：设了它，
+          # 「本该有中文 OCR 却报 OCR_UNAVAILABLE」就是**失败**而不是静默跳过。
+          FILEPILOT_REQUIRE_OCR: "1"
         run: |
           Set-Location -Path $env:GITHUB_WORKSPACE
           $log = Join-Path $env:GITHUB_WORKSPACE 'rust-test.log'

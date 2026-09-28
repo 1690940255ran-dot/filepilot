@@ -221,6 +221,24 @@ fn code_of(extraction: &filepilot_lib::domain::types::Extraction) -> String {
     extraction.code.clone().unwrap_or_default()
 }
 
+/// 这台机器是否**被要求保证**有可用的中文 OCR。
+///
+/// CI 装了中文 OCR 语言包之后会设 `FILEPILOT_REQUIRE_OCR=1`（见 `.github/workflows/ci.yml`）。
+///
+/// ## 为什么需要这个开关（CI-005）
+///
+/// 「本机没装中文语言包 → 跳过真实识别」这条分支是必要的（开发机不一定装），
+/// 但它有个坏味道：**如果 CI 上语言包没装上或没生效，用例会安静地退回跳过，
+/// 而 CI 依然全绿** —— 覆盖缺口就这么无声无息地回来了。
+/// 这正是本项目警告过的那类「一批用例被整段跳过而 CI 依然全绿」。
+///
+/// 所以：**在能保证环境的地方，把跳过变成失败。**
+/// 设了这个变量的机器上，一旦报 `OCR_UNAVAILABLE`，用例直接红 ——
+/// 让人看见「语言包没装上」，而不是以为覆盖还在。
+fn ocr_required() -> bool {
+    std::env::var("FILEPILOT_REQUIRE_OCR").is_ok_and(|value| value == "1")
+}
+
 // ---------------------------------------------------------------------------
 // 1. 文本：编码与边界
 // ---------------------------------------------------------------------------
@@ -899,6 +917,13 @@ fn a_chinese_image_comes_back_as_searchable_text() {
     let extraction = &results[0];
 
     if code_of(extraction) == "OCR_UNAVAILABLE" {
+        assert!(
+            !ocr_required(),
+            "本机声明保证有中文 OCR（FILEPILOT_REQUIRE_OCR=1），却报 OCR_UNAVAILABLE。\n\
+             这说明 CI 上的语言包没装上或没生效 —— 覆盖缺口会**静默**回来。\n\
+             不要把它当成「环境问题」绕过：要么修好语言包，要么明确承认覆盖不在。\n\
+             见 docs/POST_RELEASE_TODO.md 的 CI-005。"
+        );
         println!("[跳过真实识别] 本机 OCR 不可用：只验「如实报告缺失」，不验识别结果");
         assert!(
             extraction.text.is_empty(),
@@ -956,6 +981,11 @@ fn the_spaces_ocr_inserts_between_chinese_characters_are_gone() {
     // 理由见 `a_chinese_image_comes_back_as_searchable_text` 上方那段
     // （进程内直调 WinRT 会因公寓绑定线程而 `STATUS_ACCESS_VIOLATION`，CI-004）。
     if code_of(outcome) == "OCR_UNAVAILABLE" {
+        assert!(
+            !ocr_required(),
+            "本机声明保证有中文 OCR（FILEPILOT_REQUIRE_OCR=1），却报 OCR_UNAVAILABLE —— \
+             语言包没装上或没生效，这条检查会静默变成真空为真。见 CI-005。"
+        );
         println!("[跳过空格折叠检查] 本机 OCR 不可用，读不到文本");
         return;
     }
