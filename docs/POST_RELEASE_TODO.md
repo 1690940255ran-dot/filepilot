@@ -16,21 +16,30 @@
 
 PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
 
-**2026-09-27 CI 首次真实运行新增 4 条**（详见下文「已知问题」一节）：
+**CI-000 ~ CI-007 于 2026-09-27 ~ 09-28 全部修复，并在真实的 GitHub runner 上逐条验证过**
+（最后一次：run `36395598901` / commit `977825c`，**5 个 job 全绿**）：
 
 | 编号 | 严重度 | 一句话 | 状态 |
 |---|---|---|---|
-| **CI-000** | P1 | push 触发器分支名写错（`main` vs 实际默认分支 `master`），workflow 根本不触发 | ✅ 已修复并在 CI 上验证 |
-| **CI-001** | P1 | `extractors::image` 的边界用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩测试进程 | ✅ 已修复并在 CI 上验证（lib 408 通过） |
-| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 | ✅ 已修复并在 CI 上验证（现在能算哈希） |
-| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` | ✅ 已修复并在 CI 上验证（中文正常打印） |
-| **CI-004** | P1 | 测试进程 `STATUS_ACCESS_VIOLATION`：**集成测试里进程内直调 WinRT**（公寓绑定线程） | ✅ **根因已定位并修复**，另加机械检查防复发 |
-| **CI-005** | P2 | **CI 上验不到真实 OCR 识别结果**（runner 没有中文语言包） | 已如实记录，不当作已覆盖 |
+| **CI-000** | P1 | push 触发器分支名写错（`main` vs 实际默认分支 `master`），workflow 根本不触发 | ✅ 已在 CI 上验证 |
+| **CI-001** | P1 | `extractors::image` 的边界用例在 CI runner 上 `STATUS_ACCESS_VIOLATION`，打崩测试进程 | ✅ 已在 CI 上验证（lib 408 通过） |
+| **CI-002** | P1 | `check-contracts.ps1` 依赖 `Get-FileHash`，CI 上必然找不到 | ✅ 已在 CI 上验证（现在能算哈希） |
+| **CI-003** | P2 | `build-desktop.py` 打印中文时 cp1252 `UnicodeEncodeError` | ✅ 已在 CI 上验证（中文正常打印） |
+| **CI-004** | P1 | 测试进程 `STATUS_ACCESS_VIOLATION`：**集成测试里进程内直调 WinRT**（公寓绑定线程） | ✅ 根因已定位并修复，另加机械检查防复发 |
+| **CI-005** | P2 | CI 上验不到真实 OCR 识别结果（runner 没有中文语言包） | ✅ 已关闭：CI 装包 + 断言可用 + **真跑识别** |
 | **CI-006** | P1 | 契约文件被 `check-contracts.ps1` 报不一致 —— **实为 CRLF/LF 假警报** | ✅ 已加 `.gitattributes` 修复 |
-| **CI-007** | P1 | `--remap-path-prefix` 在 CI 上未盖住 `runneradmin` 路径，打包 job 的内容扫描正确拒绝产物 | ✅ **根因已定位并修复**（`exists()` 静默跳过映射） |
+| **CI-007** | P1 | `--remap-path-prefix` 在 CI 上未盖住编译机路径，打包 job 的内容扫描正确拒绝产物 | ✅ 根因已定位并修复（`exists()` 静默跳过映射） |
 
-**这些都是「本地全绿、CI 必红」**：本地开发机的 WinRT 组件、PowerShell 模块
-解析、Python 默认编码、行尾设置与 GitHub runner 不同。
+**这八条全部是「本地全绿、CI 必红」**：本地开发机与 GitHub runner 在
+WinRT 组件、模块解析、控制台编码、行尾设置、语言包上都不一样。
+**没有一条是「代码逻辑错」** —— 而修掉它们之后，才**第一次看见**
+契约行尾、remap 静默跳过、集成测试直调 WinRT 这些真问题。
+
+> **待修：当前无。**
+> 仍未收口的**不是缺陷**，而是两件事：
+> ① **T17 正式验收**缺一台合格的干净 Win11 x64（安装包已重建，见 `RELEASE_CHECKLIST.md`）；
+> ② **`--test-threads=1` 并不能稳定绿** —— `tests/support/fake_http.rs` 那一族的
+> 偶发失败实测 5 次挂 2 次，见 `TEST_MATRIX.md` §6.2.1。**CI 全绿不等于 CI 稳定。**
 
 ---
 
@@ -472,6 +481,39 @@ PR-001 ~ PR-004 已于 2026-09-24 批量修复（见「已修复」）。
   > 一个只在特定语言配置下出现的分支，靠读代码很难发现 ——
   > 但把「真实识别」纳入 CI 之后，它自己就浮出来了。
   > **覆盖缺口的价值不在于「多测了」，而在于「测了才会知道你错在哪」。**
+
+- **✅ 2026-09-28 CI 上最终确认：缺口真的关掉了。**
+
+  run `36395598901` / commit `977825c`，**5 个 job 全绿**，其中 rust job 的每一步都过：
+
+  ```
+  [OK] CI 静态检查（测试隔离 + 工作流脚本编码）
+  [OK] 安装中文 OCR 语言包
+  [OK] 确认 OCR 真的可用（否则下面的用例会静默降级）
+  [OK] 单元与集成测试
+  ```
+
+  这条为什么算「真的关了」而不是「又绿了一次」：
+
+  * `确认 OCR 真的可用` 通过 ⇒ runner 上**确实有中文 OCR**；
+  * 测试步骤带着 `FILEPILOT_REQUIRE_OCR=1` 跑通 ⇒
+    那两条用例**走的是真实识别分支**（若报 `OCR_UNAVAILABLE`，
+    `ocr_required()` 会直接判失败）；
+  * 于是 `text.contains("会议")` / `contains("2026")` 是**真的被判过**的 ——
+    规格 T11 那句「OCR 有文字时返回可搜索片段」**第一次在 CI 上被验证**。
+
+  CI 与本地仍然逐目标一致：**689 passed / 0 failed / 2 ignored**。
+
+  > **代价如实记**：`Add-WindowsCapability` 要访问 Windows Update，
+  > 实测让 rust job **多花约 20 分钟**（整条流水线约 25 分钟）。
+  > 这是「在 CI 上真的验一次 OCR」的价钱。
+  > 若将来嫌慢，可把它拆成独立 job 与 rust job **并行**跑。
+
+  > **中途还踩到两个互相冲突的约束**，都写进 workflow 注释并做成了机械检查：
+  > ① 要 WinRT 类型投影就必须用 5.1 版 shell（7 版没有内置投影）；
+  > ② 用了 5.1 就必须让脚本全 ASCII（GitHub 把 `run:` 写成**无 BOM** 的
+  > 临时 `.ps1`，5.1 按系统代码页读它，中文会变乱码并 ParserError）。
+  > 两条合起来 ⇒ 那一步的脚本只用 ASCII。
 
 ### CI-006｜P1｜契约「不一致」实为 CRLF/LF 假警报（**已修复**）
 
