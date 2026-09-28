@@ -870,8 +870,24 @@ fn a_chinese_image_comes_back_as_searchable_text() {
     //
     // **代价要说清**：CI 上因此验不到真正的识别结果。这个覆盖缺口
     // 如实记在 `docs/POST_RELEASE_TODO.md` 的 CI-005，**不当作已覆盖**。
-    let usable = filepilot_lib::platform::ocr::availability().is_usable();
-
+    //
+    // ## ⚠️ 「本机能不能读中文」必须从**提取结果**里读，不能直调 `availability()`
+    //
+    // 这是一个已经踩过的坑（2026-09-27，CI-004）：这里原本写的是
+    // `filepilot_lib::platform::ocr::availability().is_usable()` ——
+    // 那是**进程内直调 WinRT**，而 WinRT 的公寓模型**绑定线程**：
+    // libtest 每条用例跑在自己的线程上，第一个线程初始化公寓后退出，
+    // 第二个线程再调 WinRT 就是 `STATUS_ACCESS_VIOLATION`（段错误）。
+    // 完整套件跑起来必崩，而单跑那条用例却正常 —— 正是这个原因。
+    //
+    // 本项目的架构本来就是为避开这件事设计的：`extract_batch` **起工作进程**
+    // （见 `extractors::service`），所以这个测试文件**原本零进程内 WinRT 调用**。
+    // 需要「本机 OCR 状态」时，正确答案是从**已经拿到的提取结果**里读
+    // （`OCR_UNAVAILABLE`），或者问工作进程（`service::ocr_availability()`）——
+    // 前者零额外开销，用前者。
+    //
+    // 规矩写在 `src/platform/ocr.rs` 的模块测试注释里：真实 WinRT 调用
+    // 只走工作进程，测试从外部验证。
     let (_tmp, root) = make_root();
     let relative = put(
         &root,
@@ -882,9 +898,8 @@ fn a_chinese_image_comes_back_as_searchable_text() {
     let results = extract_batch(&root, &[request("f1", relative)], &NoopExtractObserver);
     let extraction = &results[0];
 
-    if !usable {
+    if code_of(extraction) == "OCR_UNAVAILABLE" {
         println!("[跳过真实识别] 本机 OCR 不可用：只验「如实报告缺失」，不验识别结果");
-        assert_eq!(code_of(extraction), "OCR_UNAVAILABLE", "{:?}", extraction);
         assert!(
             extraction.text.is_empty(),
             "OCR 不可用时必须给空正文，不能编：{:?}",
@@ -931,11 +946,16 @@ fn the_spaces_ocr_inserts_between_chinese_characters_are_gone() {
     );
 
     let results = extract_batch(&root, &[request("f1", relative)], &NoopExtractObserver);
-    let text = &results[0].text;
+    let outcome = &results[0];
+    let text = &outcome.text;
 
     // 没有 OCR 时这条断言会**真空为真**（空文本里当然不含任何模式），
     // 所以先确认这轮真的读到了字，否则等于没验。见 POST_RELEASE_TODO 的 CI-005。
-    if !filepilot_lib::platform::ocr::availability().is_usable() {
+    //
+    // 「本机 OCR 可不可用」从**提取结果**里读，不直调 `availability()` ——
+    // 理由见 `a_chinese_image_comes_back_as_searchable_text` 上方那段
+    // （进程内直调 WinRT 会因公寓绑定线程而 `STATUS_ACCESS_VIOLATION`，CI-004）。
+    if code_of(outcome) == "OCR_UNAVAILABLE" {
         println!("[跳过空格折叠检查] 本机 OCR 不可用，读不到文本");
         return;
     }

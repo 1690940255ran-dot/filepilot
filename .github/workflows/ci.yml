@@ -110,6 +110,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 放在最前面：纯静态检查、几秒就出结果，能把「集成测试里进程内直调 WinRT」
+      # 这类问题挡在 10 分钟的编译之前。
+      #
+      # 这条规矩本来就写在 `src-tauri/src/platform/ocr.rs` 的模块测试注释里，
+      # 但 2026-09-27 修 CI-005 时还是被违反了 —— 于是做成机械检查，
+      # 而不是继续指望注释（完整经过见 POST_RELEASE_TODO 的 CI-004）。
+      - name: 集成测试隔离检查（禁止进程内直调 WinRT）
+        run: python scripts/check-test-isolation.py
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
